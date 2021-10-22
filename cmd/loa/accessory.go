@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -25,8 +26,8 @@ type AccessoryItem struct {
 	Peon       int
 }
 
-func suggestAccessory(log func(string)) {
-	allItemList := searchAccessory(log)
+func suggestAccessory(writeLog func(string, interface{})) {
+	allItemList := searchAccessory(writeLog)
 
 	sumArray := func(srcs ...[]int) []int {
 		if len(srcs) == 0 {
@@ -67,33 +68,34 @@ func suggestAccessory(log func(string)) {
 	resultHeader = append(resultHeader, "퀄리티")
 	resultHeader = append(resultHeader, ctx.TargetStats...)
 	resultHeader = append(resultHeader, "디버프")
+	writeLog("resultHeader", resultHeader)
 	allTable = append(allTable, resultHeader)
-	saveExcel := func() {
-		file, err := os.OpenFile(tools.Config.FileBase+"result.xls", os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
-		if err == nil {
-			file.WriteString("<table>\n")
-			for idx, tr := range allTable {
-				if idx == 0 {
-					file.WriteString("<tr>\n")
-				} else if ((idx-1)/8)%2 == 0 {
-					file.WriteString("<tr bgcolor='#80ff80'>\n")
-				} else {
-					file.WriteString("<tr bgcolor='#8080ff'>\n")
-				}
-				for _, td := range tr {
-					file.WriteString("<td>")
-					file.WriteString(td)
-					file.WriteString("</td>\n")
-				}
-				file.WriteString("</tr>\n")
-			}
-			file.WriteString("</table>")
-			file.Sync()
-			file.Close()
-		}
-	}
+	// saveExcel := func() {
+	// 	file, err := os.OpenFile(tools.Config.FileBase+"result.xls", os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
+	// 	if err == nil {
+	// 		file.WriteString("<table>\n")
+	// 		for idx, tr := range allTable {
+	// 			if idx == 0 {
+	// 				file.WriteString("<tr>\n")
+	// 			} else if ((idx-1)/8)%2 == 0 {
+	// 				file.WriteString("<tr bgcolor='#80ff80'>\n")
+	// 			} else {
+	// 				file.WriteString("<tr bgcolor='#8080ff'>\n")
+	// 			}
+	// 			for _, td := range tr {
+	// 				file.WriteString("<td>")
+	// 				file.WriteString(td)
+	// 				file.WriteString("</td>\n")
+	// 			}
+	// 			file.WriteString("</tr>\n")
+	// 		}
+	// 		file.WriteString("</table>")
+	// 		file.Sync()
+	// 		file.Close()
+	// 	}
+	// }
 
-	minGold := ctx.Budget + 1
+	minGold := 1_000_000
 	var checkItemSet func(step int, curPrice int, curPeon int, curBuffs []int, curStats []int, curDebuffs []int, itemIndexList []int)
 	checkItemSet = func(step int, curPrice int, curPeon int, curBuffs []int, curStats []int, curDebuffs []int, itemIndexList []int) {
 		remainStep := len(allItemList) - step
@@ -165,7 +167,14 @@ func suggestAccessory(log func(string)) {
 				}
 				resultRow = append(resultRow, allItemList[i][v].DebuffDesc)
 				allTable = append(allTable, resultRow)
-				saveExcel()
+
+				writeLog("result", map[string]interface{}{
+					"price":   curPrice,
+					"peon":    curPeon,
+					"debuffs": getDebuffDescAll(curDebuffs),
+					"stats":   curStats,
+				})
+				// saveExcel()
 			}
 
 			msg := fmt.Sprintf("(골드) %d (페온) %d (디버프) %s (스탯 합) %s\n", curPrice, curPeon, getDebuffDescAll(curDebuffs), statDescHeader)
@@ -193,7 +202,8 @@ func suggestAccessory(log func(string)) {
 				)
 			}
 			msg += "\n"
-			log(msg)
+			log.Println(msg)
+			// writeLog("log", msg)
 
 			return
 		}
@@ -245,9 +255,10 @@ func suggestAccessory(log func(string)) {
 		make([]int, len(loa.Const.Debuffs)),
 		make([]int, 0),
 	)
+	writeLog("end", "")
 }
 
-func searchAccessory(log func(string)) [][]AccessoryItem {
+func searchAccessory(writeLog func(string, interface{})) [][]AccessoryItem {
 	stoneItems := make([]AccessoryItem, 0)
 	neckItems := make([]AccessoryItem, 0)
 	earItems := make([]AccessoryItem, 0)
@@ -331,27 +342,27 @@ func searchAccessory(log func(string)) [][]AccessoryItem {
 				}
 				switch step {
 				case 0:
-					addToItems(readOrSearchItem(log, categories[step], characterClass, steps[step], grade, ctx.TargetBuffNames[i], ctx.TargetBuffNames[j], "", "", ""), true)
+					addToItems(readOrSearchItem(writeLog, categories[step], characterClass, steps[step], grade, ctx.TargetBuffNames[i], ctx.TargetBuffNames[j], "", "", ""), true)
 				case 1:
-					addToItems(readOrSearchItem(log, categories[step], characterClass, steps[step], grade, ctx.TargetBuffNames[i], ctx.TargetBuffNames[j], ctx.TargetStats[0], ctx.TargetStats[1], qualities[step]), true)
-					addToItems(readOrSearchItem(log, categories[step], characterClass, steps[step], grade, ctx.TargetBuffNames[i], "", ctx.TargetStats[0], ctx.TargetStats[1], qualities[step]), true)
-					addToItems(readOrSearchItem(log, categories[step], characterClass, steps[step], grade, ctx.TargetBuffNames[j], "", ctx.TargetStats[0], ctx.TargetStats[1], qualities[step]), true)
+					addToItems(readOrSearchItem(writeLog, categories[step], characterClass, steps[step], grade, ctx.TargetBuffNames[i], ctx.TargetBuffNames[j], ctx.TargetStats[0], ctx.TargetStats[1], qualities[step]), true)
+					addToItems(readOrSearchItem(writeLog, categories[step], characterClass, steps[step], grade, ctx.TargetBuffNames[i], "", ctx.TargetStats[0], ctx.TargetStats[1], qualities[step]), true)
+					addToItems(readOrSearchItem(writeLog, categories[step], characterClass, steps[step], grade, ctx.TargetBuffNames[j], "", ctx.TargetStats[0], ctx.TargetStats[1], qualities[step]), true)
 				case 2:
 					fallthrough
 				case 3:
-					addToItems(readOrSearchItem(log, categories[step], characterClass, steps[step], grade, ctx.TargetBuffNames[i], ctx.TargetBuffNames[j], ctx.TargetStats[0], "", qualities[step]), true)
-					addToItems(readOrSearchItem(log, categories[step], characterClass, steps[step], grade, ctx.TargetBuffNames[i], "", ctx.TargetStats[0], "", qualities[step]), true)
-					addToItems(readOrSearchItem(log, categories[step], characterClass, steps[step], grade, ctx.TargetBuffNames[j], "", ctx.TargetStats[0], "", qualities[step]), true)
+					addToItems(readOrSearchItem(writeLog, categories[step], characterClass, steps[step], grade, ctx.TargetBuffNames[i], ctx.TargetBuffNames[j], ctx.TargetStats[0], "", qualities[step]), true)
+					addToItems(readOrSearchItem(writeLog, categories[step], characterClass, steps[step], grade, ctx.TargetBuffNames[i], "", ctx.TargetStats[0], "", qualities[step]), true)
+					addToItems(readOrSearchItem(writeLog, categories[step], characterClass, steps[step], grade, ctx.TargetBuffNames[j], "", ctx.TargetStats[0], "", qualities[step]), true)
 					if !ctx.OnlyFirstStat {
-						addToItems(readOrSearchItem(log, categories[step], characterClass, steps[step], grade, ctx.TargetBuffNames[i], ctx.TargetBuffNames[j], ctx.TargetStats[1], "", qualities[step]), true)
-						addToItems(readOrSearchItem(log, categories[step], characterClass, steps[step], grade, ctx.TargetBuffNames[i], "", ctx.TargetStats[1], "", qualities[step]), true)
-						addToItems(readOrSearchItem(log, categories[step], characterClass, steps[step], grade, ctx.TargetBuffNames[j], "", ctx.TargetStats[1], "", qualities[step]), true)
+						addToItems(readOrSearchItem(writeLog, categories[step], characterClass, steps[step], grade, ctx.TargetBuffNames[i], ctx.TargetBuffNames[j], ctx.TargetStats[1], "", qualities[step]), true)
+						addToItems(readOrSearchItem(writeLog, categories[step], characterClass, steps[step], grade, ctx.TargetBuffNames[i], "", ctx.TargetStats[1], "", qualities[step]), true)
+						addToItems(readOrSearchItem(writeLog, categories[step], characterClass, steps[step], grade, ctx.TargetBuffNames[j], "", ctx.TargetStats[1], "", qualities[step]), true)
 					}
 				}
 			}
 		}
 	}
-	log("수집 종료")
+	writeLog("log", "수집 종료")
 
 	bookBuffItems := make([]AccessoryItem, 0)
 	for name, leanBuffLevel := range ctx.LearnedBuffs {
@@ -374,7 +385,7 @@ func searchAccessory(log func(string)) [][]AccessoryItem {
 	}
 }
 
-func readOrSearchItem(log func(string), category string, characterClass string, stepName string, grade string, buff1 string, buff2 string, stat1 string, stat2 string, quality string) [][]string {
+func readOrSearchItem(writeLog func(string, interface{}), category string, characterClass string, stepName string, grade string, buff1 string, buff2 string, stat1 string, stat2 string, quality string) [][]string {
 	// filename
 	fileName := fmt.Sprintf("%s_%s", stepName, buff1)
 	if buff2 != "" {
@@ -442,15 +453,15 @@ func readOrSearchItem(log func(string), category string, characterClass string, 
 				progMsg += fmt.Sprintf(" [%s, %s]", stat1, stat2)
 			}
 		}
-		log(progMsg)
+		writeLog("log", progMsg)
 
 		ret, retry := searchAndGetResults()
 		for retry {
-			log("1분후 재검색")
+			writeLog("log", "1분후 재검색")
 			time.Sleep(time.Minute)
 			ret, retry = searchAndGetResults()
 		}
-		log(fmt.Sprintf("검색 결과 [%d]건", len(ret)))
+		writeLog("log", fmt.Sprintf("검색 결과 [%d]건", len(ret)))
 		if tools.Config.CacheSearchResult {
 			data, _ := json.MarshalIndent(ret, "", "  ")
 			if _, err := os.Stat(tools.Config.CachePath); errors.Is(err, os.ErrNotExist) {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"log"
@@ -71,14 +72,18 @@ func main() {
 			_, data, _ := conn.ReadMessage()
 
 			ctx.CharacterName = string(data)
-			conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("캐릭터: %s", ctx.CharacterName)))
 			if ctx.CharacterName == "" {
 				return
 			}
 
-			writeFunction := func(message string) {
-				conn.WriteMessage(websocket.TextMessage, []byte(message))
+			writeFunction := func(msgtype string, message interface{}) {
+				data, _ := json.Marshal(map[string]interface{}{
+					"type": msgtype,
+					"data": message,
+				})
+				conn.WriteMessage(websocket.TextMessage, data)
 			}
+			writeFunction("log", fmt.Sprintf("캐릭터: %s", ctx.CharacterName))
 
 			driver := getWebDriver()
 			defer driver.Close()
@@ -112,7 +117,7 @@ func main() {
 			return
 		}
 
-		writeFunction := func(message string) {
+		writeFunction := func(msgtype string, message interface{}) {
 			log.Println(message)
 		}
 

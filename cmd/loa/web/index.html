@@ -12,6 +12,9 @@
     <section layout="column" style="height: 100%; overflow: hidden">
         <md-toolbar md-scroll-shrink>
             <div class="md-toolbar-tools" layout="row">
+                <md-input-container flex>
+                    <input type="text" ng-model="characterName" name="characterName" ng-keypress="characterName_keydown($event)">
+                </md-input-container>
                 <md-button class="md-raised" ng-click="start()">Start</md-button>
             </div>
         </md-toolbar>
@@ -21,7 +24,15 @@
                 <span flex>{{ log }}</span>
             </md-list-item>
             </md-list>
-        </md-content>
+            <md-list>
+                <md-list-item class="md-1-line" layout="row">
+                    <span flex ng-repeat="cell in resultHeader">{{ cell }}</span>
+                </md-list-item>
+                <md-list-item class="md-1-line" ng-repeat="data in result track by $index" layout="row">
+                    <span flex ng-repeat="cell in data track by $index">{{ cell }}</span>
+                </md-list-item>
+            </md-list>
+            </md-content>
     </section>
 
     <script src="/js/angular.min.js"></script>
@@ -34,19 +45,48 @@
         var app = angular.module('MyApp', ['ngMaterial']);
         app.controller('MyController', MyController);
         function MyController($scope, $http, $timeout, $mdToast, $mdDialog) {
+            $scope.characterName = "sysprolancer"
             $scope.logs = []
+            $scope.resultHeader = []
+            $scope.result = []
+
+            $scope.characterName_keydown = function(event) {
+                if (event.which == 13) {
+                    $scope.start()
+                }
+            }
 
             $scope.start = function() {
-                var websocket = new WebSocket("ws://localhost:5555/start");
+                if ($scope.characterName == "") {
+                    return
+                }
+
+                var websocket = new WebSocket("ws://localhost:5555/start")
                 websocket.onopen = function () {
                     console.log('Connected')
-                    websocket.send('sysprobard')
+                    websocket.send($scope.characterName)
                 }
                 websocket.onclose = function () {
                     console.log('Closed')
                 }
                 websocket.onmessage = function (e) {
-                    $scope.logs.push(e.data)
+                    var data = JSON.parse(e.data)
+                    if (data.type == "log") {
+                        $scope.$apply(function() {
+                            $scope.logs.push(data.data)
+                        })
+                    } else if (data.type == "resultHeader") {
+                        $scope.$apply(function() {
+                            $scope.resultHeader = data.data
+                            $scope.result = []
+                        })
+                    } else if (data.type == "result") {
+                        $scope.$apply(function() {
+                            $scope.result.push(data.data)
+                        })
+                    } else if (data.type == "end") {
+
+                    }
                 }
                 websocket.onerror = function (e) {
                     console.log(e)
