@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>LostArk Auction Finder</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta charset="UTF-8">
+        <link rel="stylesheet" href="/css/angular-material.min.css">
+    </style>
+</head>
+
+<body ng-app="MyApp" ng-controller="MyController" ng-cloak>
+    <section layout="column" style="height: 100%; overflow: hidden">
+        <md-toolbar md-scroll-shrink>
+            <div class="md-toolbar-tools" layout="row">
+                <md-button class="md-raised" ng-click="start()">Start</md-button>
+            </div>
+        </md-toolbar>
+        <md-content layout="column" style="overflow: auto">
+            <md-list>
+            <md-list-item class="md-1-line" ng-repeat="log in logs" layout="row">
+                <span flex>{{ log }}</span>
+            </md-list-item>
+            </md-list>
+        </md-content>
+    </section>
+
+    <script src="/js/angular.min.js"></script>
+	<script src="/js/angular-animate.min.js"></script>
+	<script src="/js/angular-aria.min.js"></script>
+	<script src="/js/angular-messages.min.js"></script>
+	<script src="/js/angular-material.min.js"></script>
+
+    <script>
+        var app = angular.module('MyApp', ['ngMaterial']);
+        app.controller('MyController', MyController);
+        function MyController($scope, $http, $timeout, $mdToast, $mdDialog) {
+            $scope.logs = []
+
+            $scope.start = function() {
+                var websocket = new WebSocket("ws://localhost:5555/start");
+                websocket.onopen = function () {
+                    console.log('Connected')
+                    websocket.send('sysprobard')
+                }
+                websocket.onclose = function () {
+                    console.log('Closed')
+                }
+                websocket.onmessage = function (e) {
+                    $scope.logs.push(e.data)
+                }
+                websocket.onerror = function (e) {
+                    console.log(e)
+                }
+            }
+        }
+    </script>
+</body>
+</html>
