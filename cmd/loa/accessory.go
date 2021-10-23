@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/syspro86/lostark-auction-finder/pkg/loa"
-	"github.com/syspro86/lostark-auction-finder/pkg/tools"
 )
 
 type AccessoryItem struct {
@@ -71,7 +70,7 @@ func suggestAccessory(writeLog func(string, interface{})) {
 	writeLog("resultHeader", resultHeader)
 	allTable = append(allTable, resultHeader)
 	// saveExcel := func() {
-	// 	file, err := os.OpenFile(tools.Config.FileBase+"result.xls", os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
+	// 	file, err := os.OpenFile(toolConfig.FileBase+"result.xls", os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
 	// 	if err == nil {
 	// 		file.WriteString("<table>\n")
 	// 		for idx, tr := range allTable {
@@ -400,13 +399,13 @@ func readOrSearchItem(writeLog func(string, interface{}), category string, chara
 	fileName += ".json"
 
 	// 캐시 데이터가 한시간 이상 지났으면 삭제
-	if stat, err := os.Stat(tools.Config.CachePath + fileName); err == nil {
+	if stat, err := os.Stat(toolConfig.CachePath + fileName); err == nil {
 		if stat.ModTime().Add(time.Hour * 24).Before(time.Now()) {
-			os.Remove(tools.Config.FileBase + fileName)
+			os.Remove(toolConfig.FileBase + fileName)
 		}
 	}
 
-	if data, err := os.ReadFile(tools.Config.CachePath + fileName); err == nil {
+	if data, err := os.ReadFile(toolConfig.CachePath + fileName); err == nil {
 		tmp := new([][]string)
 		json.Unmarshal(data, tmp)
 		return *tmp
@@ -462,12 +461,12 @@ func readOrSearchItem(writeLog func(string, interface{}), category string, chara
 			ret, retry = searchAndGetResults()
 		}
 		writeLog("log", fmt.Sprintf("검색 결과 [%d]건", len(ret)))
-		if tools.Config.CacheSearchResult {
+		if toolConfig.CacheSearchResult {
 			data, _ := json.MarshalIndent(ret, "", "  ")
-			if _, err := os.Stat(tools.Config.CachePath); errors.Is(err, os.ErrNotExist) {
-				os.Mkdir(tools.Config.CachePath, 0755)
+			if _, err := os.Stat(toolConfig.CachePath); errors.Is(err, os.ErrNotExist) {
+				os.Mkdir(toolConfig.CachePath, 0755)
 			}
-			os.WriteFile(tools.Config.CachePath+fileName, data, 0644)
+			os.WriteFile(toolConfig.CachePath+fileName, data, 0644)
 		}
 		return ret
 	}

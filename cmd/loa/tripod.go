@@ -7,8 +7,6 @@ import (
 	"log"
 	"os"
 	"time"
-
-	"github.com/syspro86/lostark-auction-finder/pkg/tools"
 )
 
 type TripodItem struct {
@@ -77,13 +75,13 @@ func readOrSearchTripodItem(category string, characterClass string, stepName str
 	fileName += ".json"
 
 	// 캐시 데이터가 한시간 이상 지났으면 삭제
-	if stat, err := os.Stat(tools.Config.CachePath + fileName); err == nil {
+	if stat, err := os.Stat(toolConfig.CachePath + fileName); err == nil {
 		if stat.ModTime().Add(time.Hour).Before(time.Now()) {
-			os.Remove(tools.Config.FileBase + fileName)
+			os.Remove(toolConfig.FileBase + fileName)
 		}
 	}
 
-	if data, err := os.ReadFile(tools.Config.CachePath + fileName); err == nil {
+	if data, err := os.ReadFile(toolConfig.CachePath + fileName); err == nil {
 		tmp := new([][]string)
 		json.Unmarshal(data, tmp)
 		return *tmp
@@ -114,12 +112,12 @@ func readOrSearchTripodItem(category string, characterClass string, stepName str
 			ret, retry = searchAndGetResults()
 		}
 		log.Printf("검색 결과 [%d]건", len(ret))
-		if tools.Config.CacheSearchResult {
+		if toolConfig.CacheSearchResult {
 			data, _ := json.MarshalIndent(ret, "", "  ")
-			if _, err := os.Stat(tools.Config.CachePath); errors.Is(err, os.ErrNotExist) {
-				os.Mkdir(tools.Config.CachePath, 0755)
+			if _, err := os.Stat(toolConfig.CachePath); errors.Is(err, os.ErrNotExist) {
+				os.Mkdir(toolConfig.CachePath, 0755)
 			}
-			os.WriteFile(tools.Config.CachePath+fileName, data, 0644)
+			os.WriteFile(toolConfig.CachePath+fileName, data, 0644)
 		}
 		return ret
 	}

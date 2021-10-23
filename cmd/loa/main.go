@@ -12,12 +12,11 @@ import (
 	"runtime"
 
 	"github.com/gorilla/websocket"
-	"github.com/syspro86/lostark-auction-finder/pkg/tools"
 	"github.com/tebeka/selenium"
 	"github.com/tebeka/selenium/chrome"
 )
 
-var ctx = tools.Context{
+var ctx = Context{
 	CharacterName:      "",
 	LearnedBuffs:       map[string]int{},
 	SupposedStoneLevel: []int{6, 6, 3},
@@ -34,8 +33,8 @@ var _driver selenium.WebDriver
 func getWebDriver() selenium.WebDriver {
 	if _driver == nil {
 		caps := selenium.Capabilities{"browserName": "chrome"}
-		caps.AddChrome(chrome.Capabilities{Args: []string{fmt.Sprintf("--user-data-dir=%s", tools.Config.ChromeUserDataPath)}})
-		driver, err := selenium.NewRemote(caps, tools.Config.SeleniumURL)
+		caps.AddChrome(chrome.Capabilities{Args: []string{fmt.Sprintf("--user-data-dir=%s", toolConfig.ChromeUserDataPath)}})
+		driver, err := selenium.NewRemote(caps, toolConfig.SeleniumURL)
 		panicIfError(err)
 		_driver = driver
 	}
@@ -46,20 +45,20 @@ func getWebDriver() selenium.WebDriver {
 var web embed.FS
 
 func main() {
-	tools.Config.Load("tool.json")
-	ctx.Load(tools.Config.FileBase + "config.json")
+	toolConfig.Load("tool.json")
+	ctx.Load(toolConfig.FileBase + "config.json")
 
-	if tools.Config.SeleniumURL == "" {
-		tools.Config.SeleniumURL = "http://localhost:4444/wd/hub"
+	if toolConfig.SeleniumURL == "" {
+		toolConfig.SeleniumURL = "http://localhost:4444/wd/hub"
 	}
-	if tools.Config.ChromeUserDataPath == "" {
+	if toolConfig.ChromeUserDataPath == "" {
 		service, err := selenium.NewChromeDriverService("chromedriver.exe", 4444)
 		panicIfError(err)
 		defer service.Stop()
 
 		user, err := user.Current()
 		panicIfError(err)
-		tools.Config.ChromeUserDataPath = fmt.Sprintf("%s\\AppData\\Local\\Google\\Chrome\\User Data\\", user.HomeDir)
+		toolConfig.ChromeUserDataPath = fmt.Sprintf("%s\\AppData\\Local\\Google\\Chrome\\User Data\\", user.HomeDir)
 	}
 
 	if runtime.GOOS == "windows" {
