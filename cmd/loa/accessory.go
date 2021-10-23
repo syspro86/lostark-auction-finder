@@ -12,6 +12,12 @@ import (
 	"github.com/syspro86/lostark-auction-finder/pkg/loa"
 )
 
+type AccessoryJob struct {
+	Web       WebClient
+	LogWriter func(string, interface{})
+	Ctx       Context
+}
+
 type AccessoryItem struct {
 	Name       string
 	Price      int
@@ -25,8 +31,8 @@ type AccessoryItem struct {
 	Peon       int
 }
 
-func suggestAccessory(writeLog func(string, interface{})) {
-	allItemList := searchAccessory(writeLog)
+func (job *AccessoryJob) Start() {
+	allItemList := job.searchAccessory()
 
 	sumArray := func(srcs ...[]int) []int {
 		if len(srcs) == 0 {
@@ -57,17 +63,17 @@ func suggestAccessory(writeLog func(string, interface{})) {
 	resultHeader = append(resultHeader, "총 골드")
 	resultHeader = append(resultHeader, "총 페온")
 	resultHeader = append(resultHeader, "전체 디버프")
-	for _, v := range ctx.TargetStats {
+	for _, v := range job.Ctx.TargetStats {
 		resultHeader = append(resultHeader, fmt.Sprintf("총 %s", v))
 	}
 	resultHeader = append(resultHeader, "부위 골드")
 	resultHeader = append(resultHeader, "부위 페온")
 	resultHeader = append(resultHeader, "아이템 이름")
-	resultHeader = append(resultHeader, ctx.TargetBuffNames...)
+	resultHeader = append(resultHeader, job.Ctx.TargetBuffNames...)
 	resultHeader = append(resultHeader, "퀄리티")
-	resultHeader = append(resultHeader, ctx.TargetStats...)
+	resultHeader = append(resultHeader, job.Ctx.TargetStats...)
 	resultHeader = append(resultHeader, "디버프")
-	writeLog("resultHeader", resultHeader)
+	job.LogWriter("resultHeader", resultHeader)
 	allTable = append(allTable, resultHeader)
 	// saveExcel := func() {
 	// 	file, err := os.OpenFile(toolConfig.FileBase+"result.xls", os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
@@ -132,15 +138,15 @@ func suggestAccessory(writeLog func(string, interface{})) {
 			}
 
 			statDescHeader := ""
-			for i, v := range ctx.TargetStats {
+			for i, v := range job.Ctx.TargetStats {
 				statDescHeader += fmt.Sprintf("%s %d ", v, curStats[i])
 			}
 			buffHeader := ""
-			for _, v := range ctx.TargetBuffNames {
+			for _, v := range job.Ctx.TargetBuffNames {
 				buffHeader += fmt.Sprintf("%s ", fill(v, 20))
 			}
 			statHeader := ""
-			for _, v := range ctx.TargetStats {
+			for _, v := range job.Ctx.TargetStats {
 				statHeader += fmt.Sprintf("%s ", fill(v, 6))
 			}
 
@@ -167,7 +173,7 @@ func suggestAccessory(writeLog func(string, interface{})) {
 				resultRow = append(resultRow, allItemList[i][v].DebuffDesc)
 				allTable = append(allTable, resultRow)
 
-				writeLog("result", map[string]interface{}{
+				job.LogWriter("result", map[string]interface{}{
 					"price":   curPrice,
 					"peon":    curPeon,
 					"debuffs": getDebuffDescAll(curDebuffs),
@@ -184,11 +190,11 @@ func suggestAccessory(writeLog func(string, interface{})) {
 				fill("품질", 6))
 			for i, v := range itemIndexList {
 				buffStr := ""
-				for z := range ctx.TargetBuffNames {
+				for z := range job.Ctx.TargetBuffNames {
 					buffStr += fmt.Sprintf("%20d ", allItemList[i][v].Buffs[z])
 				}
 				statStr := ""
-				for z := range ctx.TargetStats {
+				for z := range job.Ctx.TargetStats {
 					statStr += fmt.Sprintf("%6d ", allItemList[i][v].Stats[z])
 				}
 				msg += fmt.Sprintf(" %s%6d%s%s (%s) %s\n",
@@ -208,7 +214,7 @@ func suggestAccessory(writeLog func(string, interface{})) {
 		}
 
 		for index, item := range allItemList[step] {
-			if curPrice+item.Price > ctx.Budget || curPrice+item.Price > minGold {
+			if curPrice+item.Price > minGold {
 				continue
 			}
 			hasUniqueName := false
@@ -228,18 +234,18 @@ func suggestAccessory(writeLog func(string, interface{})) {
 			getInsufficientPoint := func(arr []int) int {
 				pt := 0
 				for i, num := range arr {
-					if num < ctx.TargetLevels[i] {
-						pt += ctx.TargetLevels[i] - num
+					if num < job.Ctx.TargetLevels[i] {
+						pt += job.Ctx.TargetLevels[i] - num
 					}
 				}
 				return pt
 			}
 
-			if step >= 3 && getInsufficientPoint(nextBuffs) > loa.Const.MaxBuffPointPerGrade[ctx.Grade]*(remainStep-1) {
+			if step >= 3 && getInsufficientPoint(nextBuffs) > loa.Const.MaxBuffPointPerGrade[job.Ctx.Grade]*(remainStep-1) {
 				continue
 			}
 			nextDebuffs := sumArray(curDebuffs, item.Debuffs)
-			if getDebuffLevel(nextDebuffs) > ctx.MaxDebuffLevel {
+			if getDebuffLevel(nextDebuffs) > job.Ctx.MaxDebuffLevel {
 				continue
 			}
 			nextStats := sumArray(curStats, item.Stats)
@@ -249,15 +255,15 @@ func suggestAccessory(writeLog func(string, interface{})) {
 	}
 
 	checkItemSet(0, 0, 0,
-		make([]int, len(ctx.TargetBuffNames)),
-		make([]int, len(ctx.TargetStats)),
+		make([]int, len(job.Ctx.TargetBuffNames)),
+		make([]int, len(job.Ctx.TargetStats)),
 		make([]int, len(loa.Const.Debuffs)),
 		make([]int, 0),
 	)
-	writeLog("end", "")
+	job.LogWriter("end", "")
 }
 
-func searchAccessory(writeLog func(string, interface{})) [][]AccessoryItem {
+func (job *AccessoryJob) searchAccessory() [][]AccessoryItem {
 	stoneItems := make([]AccessoryItem, 0)
 	neckItems := make([]AccessoryItem, 0)
 	earItems := make([]AccessoryItem, 0)
@@ -265,27 +271,28 @@ func searchAccessory(writeLog func(string, interface{})) [][]AccessoryItem {
 
 	steps := []string{"어빌리티 스톤", "목걸이", "귀걸이", "반지"}
 	categories := []string{"어빌리티 스톤 - 전체", "장신구 - 목걸이", "장신구 - 귀걸이", "장신구 - 반지"}
-	qualities := []string{"전체 품질", ctx.TargetQuality, ctx.TargetQuality, ctx.TargetQuality}
+	qualities := []string{"전체 품질", job.Ctx.TargetQuality, job.Ctx.TargetQuality, job.Ctx.TargetQuality}
 
-	characterClass, characterItems := getItemsFromCharacter()
+	characterClass, characterItems := job.Web.getItemsFromCharacter(job.Ctx.CharacterName)
+	job.Ctx.Grade = loa.Const.Grades[1]
 
 	for step := range steps {
 		dstItems := []*[]AccessoryItem{&stoneItems, &neckItems, &earItems, &ringItems}[step]
-		grade := ctx.Grade
+		grade := job.Ctx.Grade
 		if grade == "고대" && steps[step] == "어빌리티 스톤" {
 			grade = "유물"
 		}
 		addToItems := func(searchResult [][]string, usePeon bool) {
 			for _, item := range searchResult {
 				part := strings.Split(item[1], ";")
-				eachBuff := make([]int, len(ctx.TargetBuffNames))
-				eachStat := make([]int, len(ctx.TargetStats))
+				eachBuff := make([]int, len(job.Ctx.TargetBuffNames))
+				eachStat := make([]int, len(job.Ctx.TargetStats))
 				eachDebuff := make([]int, len(loa.Const.Debuffs))
 				eachQuality := ""
 				if len(item) >= 4 {
 					eachQuality = item[3]
 				}
-				supposedLevel := ctx.SupposedStoneLevel[:]
+				supposedLevel := job.Ctx.SupposedStoneLevel[:]
 				for _, p := range part {
 					rname := strings.Split(p, "]")[0][1:]
 					rlevel := 0
@@ -295,10 +302,10 @@ func searchAccessory(writeLog func(string, interface{})) [][]AccessoryItem {
 					} else {
 						rlevel = parseInt(strings.Split(p, "+")[1])
 					}
-					if i := arrayIndexOf(ctx.TargetBuffNames, rname); i >= 0 {
+					if i := arrayIndexOf(job.Ctx.TargetBuffNames, rname); i >= 0 {
 						eachBuff[i] = rlevel
 					}
-					if i := arrayIndexOf(ctx.TargetStats, rname); i >= 0 {
+					if i := arrayIndexOf(job.Ctx.TargetStats, rname); i >= 0 {
 						eachStat[i] = rlevel
 					}
 					if i := arrayIndexOf(loa.Const.Debuffs, rname); i >= 0 {
@@ -332,47 +339,47 @@ func searchAccessory(writeLog func(string, interface{})) [][]AccessoryItem {
 		}
 		addToItems(characterItems[step], false)
 
-		for i := 0; i < len(ctx.TargetBuffNames); i++ {
-			for j := i + 1; j < len(ctx.TargetBuffNames); j++ {
+		for i := 0; i < len(job.Ctx.TargetBuffNames); i++ {
+			for j := i + 1; j < len(job.Ctx.TargetBuffNames); j++ {
 				if step == 0 {
-					if arrayIndexOf(loa.Const.ClassBuffs, ctx.TargetBuffNames[i]) >= 0 || arrayIndexOf(loa.Const.ClassBuffs, ctx.TargetBuffNames[j]) >= 0 {
+					if arrayIndexOf(loa.Const.ClassBuffs, job.Ctx.TargetBuffNames[i]) >= 0 || arrayIndexOf(loa.Const.ClassBuffs, job.Ctx.TargetBuffNames[j]) >= 0 {
 						continue
 					}
 				}
 				switch step {
 				case 0:
-					addToItems(readOrSearchItem(writeLog, categories[step], characterClass, steps[step], grade, ctx.TargetBuffNames[i], ctx.TargetBuffNames[j], "", "", ""), true)
+					addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.Ctx.TargetBuffNames[i], job.Ctx.TargetBuffNames[j], "", "", ""), true)
 				case 1:
-					addToItems(readOrSearchItem(writeLog, categories[step], characterClass, steps[step], grade, ctx.TargetBuffNames[i], ctx.TargetBuffNames[j], ctx.TargetStats[0], ctx.TargetStats[1], qualities[step]), true)
-					addToItems(readOrSearchItem(writeLog, categories[step], characterClass, steps[step], grade, ctx.TargetBuffNames[i], "", ctx.TargetStats[0], ctx.TargetStats[1], qualities[step]), true)
-					addToItems(readOrSearchItem(writeLog, categories[step], characterClass, steps[step], grade, ctx.TargetBuffNames[j], "", ctx.TargetStats[0], ctx.TargetStats[1], qualities[step]), true)
+					addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.Ctx.TargetBuffNames[i], job.Ctx.TargetBuffNames[j], job.Ctx.TargetStats[0], job.Ctx.TargetStats[1], qualities[step]), true)
+					addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.Ctx.TargetBuffNames[i], "", job.Ctx.TargetStats[0], job.Ctx.TargetStats[1], qualities[step]), true)
+					addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.Ctx.TargetBuffNames[j], "", job.Ctx.TargetStats[0], job.Ctx.TargetStats[1], qualities[step]), true)
 				case 2:
 					fallthrough
 				case 3:
-					addToItems(readOrSearchItem(writeLog, categories[step], characterClass, steps[step], grade, ctx.TargetBuffNames[i], ctx.TargetBuffNames[j], ctx.TargetStats[0], "", qualities[step]), true)
-					addToItems(readOrSearchItem(writeLog, categories[step], characterClass, steps[step], grade, ctx.TargetBuffNames[i], "", ctx.TargetStats[0], "", qualities[step]), true)
-					addToItems(readOrSearchItem(writeLog, categories[step], characterClass, steps[step], grade, ctx.TargetBuffNames[j], "", ctx.TargetStats[0], "", qualities[step]), true)
-					if !ctx.OnlyFirstStat {
-						addToItems(readOrSearchItem(writeLog, categories[step], characterClass, steps[step], grade, ctx.TargetBuffNames[i], ctx.TargetBuffNames[j], ctx.TargetStats[1], "", qualities[step]), true)
-						addToItems(readOrSearchItem(writeLog, categories[step], characterClass, steps[step], grade, ctx.TargetBuffNames[i], "", ctx.TargetStats[1], "", qualities[step]), true)
-						addToItems(readOrSearchItem(writeLog, categories[step], characterClass, steps[step], grade, ctx.TargetBuffNames[j], "", ctx.TargetStats[1], "", qualities[step]), true)
+					addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.Ctx.TargetBuffNames[i], job.Ctx.TargetBuffNames[j], job.Ctx.TargetStats[0], "", qualities[step]), true)
+					addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.Ctx.TargetBuffNames[i], "", job.Ctx.TargetStats[0], "", qualities[step]), true)
+					addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.Ctx.TargetBuffNames[j], "", job.Ctx.TargetStats[0], "", qualities[step]), true)
+					if !job.Ctx.OnlyFirstStat {
+						addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.Ctx.TargetBuffNames[i], job.Ctx.TargetBuffNames[j], job.Ctx.TargetStats[1], "", qualities[step]), true)
+						addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.Ctx.TargetBuffNames[i], "", job.Ctx.TargetStats[1], "", qualities[step]), true)
+						addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.Ctx.TargetBuffNames[j], "", job.Ctx.TargetStats[1], "", qualities[step]), true)
 					}
 				}
 			}
 		}
 	}
-	writeLog("log", "수집 종료")
+	job.LogWriter("log", "수집 종료")
 
 	bookBuffItems := make([]AccessoryItem, 0)
-	for name, leanBuffLevel := range ctx.LearnedBuffs {
-		index := arrayIndexOf(ctx.TargetBuffNames, name)
+	for name, leanBuffLevel := range job.Ctx.LearnedBuffs {
+		index := arrayIndexOf(job.Ctx.TargetBuffNames, name)
 		if index >= 0 {
-			buffs := make([]int, len(ctx.TargetBuffNames))
+			buffs := make([]int, len(job.Ctx.TargetBuffNames))
 			buffs[index] = leanBuffLevel
 			bookBuffItems = append(bookBuffItems, AccessoryItem{
 				Name:    "[각인]" + name,
 				Buffs:   buffs,
-				Stats:   make([]int, len(ctx.TargetStats)),
+				Stats:   make([]int, len(job.Ctx.TargetStats)),
 				Debuffs: make([]int, len(loa.Const.Debuffs)),
 				Price:   0,
 			})
@@ -384,7 +391,7 @@ func searchAccessory(writeLog func(string, interface{})) [][]AccessoryItem {
 	}
 }
 
-func readOrSearchItem(writeLog func(string, interface{}), category string, characterClass string, stepName string, grade string, buff1 string, buff2 string, stat1 string, stat2 string, quality string) [][]string {
+func (job *AccessoryJob) readOrSearchItem(category string, characterClass string, stepName string, grade string, buff1 string, buff2 string, stat1 string, stat2 string, quality string) [][]string {
 	// filename
 	fileName := fmt.Sprintf("%s_%s", stepName, buff1)
 	if buff2 != "" {
@@ -410,31 +417,31 @@ func readOrSearchItem(writeLog func(string, interface{}), category string, chara
 		json.Unmarshal(data, tmp)
 		return *tmp
 	} else {
-		loginStove()
-		openAuction()
+		job.Web.loginStove()
+		job.Web.openAuction()
 
-		selectDetailOption(".lui-modal__window .select--deal-category", category)
-		selectDetailOption(".lui-modal__window .select--deal-class", characterClass)
-		selectDetailOption(".lui-modal__window .select--deal-grade", grade)
-		selectDetailOption(".lui-modal__window .select--deal-itemtier", loa.Const.Tier)
+		job.Web.selectDetailOption(".lui-modal__window .select--deal-category", category)
+		job.Web.selectDetailOption(".lui-modal__window .select--deal-class", characterClass)
+		job.Web.selectDetailOption(".lui-modal__window .select--deal-grade", grade)
+		job.Web.selectDetailOption(".lui-modal__window .select--deal-itemtier", loa.Const.Tier)
 		if quality != "" {
-			selectDetailOption(".lui-modal__window .select--deal-quality", quality)
+			job.Web.selectDetailOption(".lui-modal__window .select--deal-quality", quality)
 		}
 		if buff1 != "" {
-			selectEtcDetailOption(".lui-modal__window #selEtc_0", "각인 효과")
-			selectEtcDetailOption(".lui-modal__window #selEtcSub_0", buff1)
+			job.Web.selectEtcDetailOption(".lui-modal__window #selEtc_0", "각인 효과")
+			job.Web.selectEtcDetailOption(".lui-modal__window #selEtcSub_0", buff1)
 		}
 		if buff2 != "" {
-			selectEtcDetailOption(".lui-modal__window #selEtc_1", "각인 효과")
-			selectEtcDetailOption(".lui-modal__window #selEtcSub_1", buff2)
+			job.Web.selectEtcDetailOption(".lui-modal__window #selEtc_1", "각인 효과")
+			job.Web.selectEtcDetailOption(".lui-modal__window #selEtcSub_1", buff2)
 		}
 		if stat1 != "" {
-			selectEtcDetailOption(".lui-modal__window #selEtc_2", "전투 특성")
-			selectEtcDetailOption(".lui-modal__window #selEtcSub_2", stat1)
+			job.Web.selectEtcDetailOption(".lui-modal__window #selEtc_2", "전투 특성")
+			job.Web.selectEtcDetailOption(".lui-modal__window #selEtcSub_2", stat1)
 		}
 		if stat2 != "" {
-			selectEtcDetailOption(".lui-modal__window #selEtc_3", "전투 특성")
-			selectEtcDetailOption(".lui-modal__window #selEtcSub_3", stat2)
+			job.Web.selectEtcDetailOption(".lui-modal__window #selEtc_3", "전투 특성")
+			job.Web.selectEtcDetailOption(".lui-modal__window #selEtcSub_3", stat2)
 		}
 
 		progMsg := fmt.Sprintf("%s 검색", stepName)
@@ -452,15 +459,15 @@ func readOrSearchItem(writeLog func(string, interface{}), category string, chara
 				progMsg += fmt.Sprintf(" [%s, %s]", stat1, stat2)
 			}
 		}
-		writeLog("log", progMsg)
+		job.LogWriter("log", progMsg)
 
-		ret, retry := searchAndGetResults()
+		ret, retry := job.Web.searchAndGetResults(job.Ctx.AuctionItemCount)
 		for retry {
-			writeLog("log", "1분후 재검색")
+			job.LogWriter("log", "1분후 재검색")
 			time.Sleep(time.Minute)
-			ret, retry = searchAndGetResults()
+			ret, retry = job.Web.searchAndGetResults(job.Ctx.AuctionItemCount)
 		}
-		writeLog("log", fmt.Sprintf("검색 결과 [%d]건", len(ret)))
+		job.LogWriter("log", fmt.Sprintf("검색 결과 [%d]건", len(ret)))
 		if toolConfig.CacheSearchResult {
 			data, _ := json.MarshalIndent(ret, "", "  ")
 			if _, err := os.Stat(toolConfig.CachePath); errors.Is(err, os.ErrNotExist) {

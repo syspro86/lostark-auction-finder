@@ -11,15 +11,18 @@ import (
 	"github.com/tebeka/selenium"
 )
 
-func getItemsFromCharacter() (string, [][][]string) {
-	driver := getWebDriver()
+type WebClient struct {
+	Driver selenium.WebDriver
+}
+
+func (client *WebClient) getItemsFromCharacter(characterName string) (string, [][][]string) {
 	for {
-		driver.SetImplicitWaitTimeout(10 * time.Second)
-		err := driver.Get(fmt.Sprintf("https://lostark.game.onstove.com/Profile/Character/%s", ctx.CharacterName))
+		client.Driver.SetImplicitWaitTimeout(10 * time.Second)
+		err := client.Driver.Get(fmt.Sprintf("https://lostark.game.onstove.com/Profile/Character/%s", characterName))
 		panicIfError(err)
 
 		sleepShortly()
-		success, err := driver.ExecuteScript(`
+		success, err := client.Driver.ExecuteScript(`
 			var profile = document.querySelectorAll("#profile-ability script");
 			if (profile.length == 0) {
 				return "";
@@ -164,15 +167,14 @@ func getItemsFromCharacter() (string, [][][]string) {
 	}
 }
 
-func loginStove() {
-	driver := getWebDriver()
+func (client *WebClient) loginStove() {
 	for {
-		driver.SetImplicitWaitTimeout(10 * time.Second)
-		err := driver.Get("https://lostark.game.onstove.com/Main")
+		client.Driver.SetImplicitWaitTimeout(10 * time.Second)
+		err := client.Driver.Get("https://lostark.game.onstove.com/Main")
 		panicIfError(err)
 
 		sleepShortly()
-		success, err := driver.ExecuteScript(`
+		success, err := client.Driver.ExecuteScript(`
 			var login = document.querySelectorAll("#login-btn");
 			if (login.length == 0) {
 				return "false";
@@ -194,12 +196,12 @@ func loginStove() {
 
 		for {
 			time.Sleep(time.Second * 2)
-			status, err := driver.Status()
+			status, err := client.Driver.Status()
 			panicIfError(err)
 			if !status.Ready {
 				continue
 			}
-			if url, err := driver.CurrentURL(); err == nil {
+			if url, err := client.Driver.CurrentURL(); err == nil {
 				if strings.HasPrefix(url, "https://member.onstove.com/auth/") {
 					continue
 				}
@@ -209,13 +211,12 @@ func loginStove() {
 	}
 }
 
-func openAuction() {
-	driver := getWebDriver()
-	err := driver.Get("https://lostark.game.onstove.com/Auction")
+func (client *WebClient) openAuction() {
+	err := client.Driver.Get("https://lostark.game.onstove.com/Auction")
 	panicIfError(err)
 	for {
 		sleepShortly()
-		detailBtn, err := driver.FindElement(selenium.ByCSSSelector, ".button--deal-detail")
+		detailBtn, err := client.Driver.FindElement(selenium.ByCSSSelector, ".button--deal-detail")
 		if err != nil {
 			continue
 		}
@@ -226,11 +227,10 @@ func openAuction() {
 	}
 }
 
-func selectDetailOption(className string, optionName string) {
-	driver := getWebDriver()
+func (client *WebClient) selectDetailOption(className string, optionName string) {
 	for {
 		sleepShortly()
-		optionGroup, err := driver.FindElement(selenium.ByCSSSelector, className)
+		optionGroup, err := client.Driver.FindElement(selenium.ByCSSSelector, className)
 		if err != nil || optionGroup == nil {
 			continue
 		}
@@ -262,11 +262,10 @@ func selectDetailOption(className string, optionName string) {
 	}
 }
 
-func selectEtcDetailOption(idName string, optionName string) {
-	driver := getWebDriver()
+func (client *WebClient) selectEtcDetailOption(idName string, optionName string) {
 	for {
 		sleepShortly()
-		category, err := driver.FindElement(selenium.ByCSSSelector, idName)
+		category, err := client.Driver.FindElement(selenium.ByCSSSelector, idName)
 		if err != nil || category == nil {
 			continue
 		}
@@ -298,11 +297,10 @@ func selectEtcDetailOption(idName string, optionName string) {
 	}
 }
 
-func searchAndGetResults() ([][]string, bool) {
-	driver := getWebDriver()
+func (client *WebClient) searchAndGetResults(itemCount int) ([][]string, bool) {
 	for {
 		sleepShortly()
-		search, err := driver.FindElement(selenium.ByCSSSelector, ".lui-modal__search")
+		search, err := client.Driver.FindElement(selenium.ByCSSSelector, ".lui-modal__search")
 		if err != nil || search == nil {
 			continue
 		}
@@ -317,13 +315,13 @@ func searchAndGetResults() ([][]string, bool) {
 		time.Sleep(500 * time.Millisecond)
 		// sleepShortly()
 
-		// empty, err := driver.FindElement(selenium.ByCSSSelector, "#auctionListTbody .empty")
+		// empty, err := client.Driver.FindElement(selenium.ByCSSSelector, "#auctionListTbody .empty")
 		// if err == nil || empty != nil {
 		// 	emptyText, _ := empty.GetAttribute("innerText")
 		// 	if strings.Trim(emptyText, " ") == "경매장 연속 검색으로 인해 검색 이용이 최대 5분간 제한되었습니다." {
 		// 		log.Println("이용 제한으로 5분 대기")
 		// 		time.Sleep(5 * time.Minute)
-		// 		driver.ExecuteScript(fmt.Sprintf("paging.page(%d);", page), nil)
+		// 		client.Driver.ExecuteScript(fmt.Sprintf("paging.page(%d);", page), nil)
 		// 		continue
 		// 	}
 		// 	return retList, false
@@ -332,7 +330,7 @@ func searchAndGetResults() ([][]string, bool) {
 		for {
 			sleepShortly()
 
-			success, err := driver.ExecuteScript(`
+			success, err := client.Driver.ExecuteScript(`
 				var listBody = document.querySelectorAll("#auctionListTbody .empty");
 				if (listBody.length == 0) {
 					return "false";
@@ -350,7 +348,7 @@ func searchAndGetResults() ([][]string, bool) {
 			case "5min":
 				log.Println("이용 제한으로 1분 대기")
 				time.Sleep(time.Minute)
-				driver.ExecuteScript(fmt.Sprintf("paging.page(%d);", page), nil)
+				client.Driver.ExecuteScript(fmt.Sprintf("paging.page(%d);", page), nil)
 				continue
 			}
 			break
@@ -360,7 +358,7 @@ func searchAndGetResults() ([][]string, bool) {
 			for {
 				sleepShortly()
 
-				success, err := driver.ExecuteScript(`
+				success, err := client.Driver.ExecuteScript(`
 					var priceButton = document.querySelectorAll("#BUY_PRICE");
 					if (priceButton.length == 0) {
 						return "false";
@@ -380,7 +378,7 @@ func searchAndGetResults() ([][]string, bool) {
 			}
 		}
 
-		auctionList, err := driver.FindElement(selenium.ByCSSSelector, "#auctionListTbody")
+		auctionList, err := client.Driver.FindElement(selenium.ByCSSSelector, "#auctionListTbody")
 		if err != nil || auctionList == nil {
 			continue
 		}
@@ -407,7 +405,7 @@ func searchAndGetResults() ([][]string, bool) {
 			}
 			return ss;
 		`
-		ret, err := driver.ExecuteScript(itemListScripts, nil)
+		ret, err := client.Driver.ExecuteScript(itemListScripts, nil)
 		if err != nil {
 			continue
 		}
@@ -424,21 +422,20 @@ func searchAndGetResults() ([][]string, bool) {
 			}
 		}
 
-		if foundCount < ctx.AuctionItemCount {
+		if foundCount < itemCount {
 			page++
 			log.Printf("%d 페이지 추가 검색\n", page)
-			driver.ExecuteScript(fmt.Sprintf("paging.page(%d);", page), nil)
+			client.Driver.ExecuteScript(fmt.Sprintf("paging.page(%d);", page), nil)
 		} else {
 			return retList, false
 		}
 	}
 }
 
-func selectSkillMinLevel(idName string, level string) {
-	driver := getWebDriver()
+func (client *WebClient) selectSkillMinLevel(idName string, level string) {
 	for {
 		sleepShortly()
-		input, err := driver.FindElement(selenium.ByCSSSelector, idName)
+		input, err := client.Driver.FindElement(selenium.ByCSSSelector, idName)
 		if err != nil || input == nil {
 			continue
 		}

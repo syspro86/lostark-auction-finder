@@ -12,33 +12,17 @@ import (
 	"runtime"
 
 	"github.com/gorilla/websocket"
+	"github.com/syspro86/lostark-auction-finder/pkg/loa"
 	"github.com/tebeka/selenium"
 	"github.com/tebeka/selenium/chrome"
 )
 
-var ctx = Context{
-	CharacterName:      "",
-	LearnedBuffs:       map[string]int{},
-	SupposedStoneLevel: []int{6, 6, 3},
-	Grade:              "유물",
-	AuctionItemCount:   10,
-	Budget:             10_000,
-	TargetBuffs:        map[string]int{},
-	TargetQuality:      "전체 품질",
-	MaxDebuffLevel:     1,
-}
-
-var _driver selenium.WebDriver
-
 func getWebDriver() selenium.WebDriver {
-	if _driver == nil {
-		caps := selenium.Capabilities{"browserName": "chrome"}
-		caps.AddChrome(chrome.Capabilities{Args: []string{fmt.Sprintf("--user-data-dir=%s", toolConfig.ChromeUserDataPath)}})
-		driver, err := selenium.NewRemote(caps, toolConfig.SeleniumURL)
-		panicIfError(err)
-		_driver = driver
-	}
-	return _driver
+	caps := selenium.Capabilities{"browserName": "chrome"}
+	caps.AddChrome(chrome.Capabilities{Args: []string{fmt.Sprintf("--user-data-dir=%s", toolConfig.ChromeUserDataPath)}})
+	driver, err := selenium.NewRemote(caps, toolConfig.SeleniumURL)
+	panicIfError(err)
+	return driver
 }
 
 //go:embed web
@@ -46,7 +30,6 @@ var web embed.FS
 
 func main() {
 	toolConfig.Load("tool.json")
-	ctx.Load(toolConfig.FileBase + "config.json")
 
 	if toolConfig.SeleniumURL == "" {
 		toolConfig.SeleniumURL = "http://localhost:4444/wd/hub"
@@ -61,6 +44,18 @@ func main() {
 		toolConfig.ChromeUserDataPath = fmt.Sprintf("%s\\AppData\\Local\\Google\\Chrome\\User Data\\", user.HomeDir)
 	}
 
+	var ctx = Context{
+		CharacterName:      "",
+		LearnedBuffs:       map[string]int{},
+		SupposedStoneLevel: []int{6, 6, 3},
+		Grade:              "유물",
+		AuctionItemCount:   10,
+		TargetBuffs:        map[string]int{},
+		TargetQuality:      "전체 품질",
+		MaxDebuffLevel:     1,
+	}
+	ctx.Load(toolConfig.FileBase + "config.json")
+
 	if runtime.GOOS == "windows" {
 		upgrader := websocket.Upgrader{
 			ReadBufferSize:  1024,
@@ -69,11 +64,13 @@ func main() {
 
 		startSearch := func(conn *websocket.Conn) {
 			_, data, _ := conn.ReadMessage()
-
-			ctx.CharacterName = string(data)
+			if err := json.Unmarshal(data, &ctx); err != nil {
+				return
+			}
 			if ctx.CharacterName == "" {
 				return
 			}
+			ctx.Save(toolConfig.FileBase + "config.json")
 
 			writeFunction := func(msgtype string, message interface{}) {
 				data, _ := json.Marshal(map[string]interface{}{
@@ -86,14 +83,35 @@ func main() {
 
 			driver := getWebDriver()
 			defer driver.Close()
+
 			if len(ctx.TargetTripods) > 0 {
-				suggestTripod()
+				job := TripodJob{
+					Web:       WebClient{Driver: driver},
+					LogWriter: writeFunction,
+					Ctx:       ctx,
+				}
+				job.Start()
 			} else {
-				suggestAccessory(writeFunction)
+				job := AccessoryJob{
+					Web:       WebClient{Driver: driver},
+					LogWriter: writeFunction,
+					Ctx:       ctx,
+				}
+				job.Start()
 			}
 		}
 		webSub, _ := fs.Sub(web, "web")
 		http.Handle("/", http.FileServer(http.FS(webSub)))
+		http.HandleFunc("/loa/const", func(resp http.ResponseWriter, req *http.Request) {
+			resp.Header().Add("Content-Type", "application/json")
+			data, _ := json.Marshal(loa.Const)
+			resp.Write(data)
+		})
+		http.HandleFunc("/context", func(resp http.ResponseWriter, req *http.Request) {
+			resp.Header().Add("Content-Type", "application/json")
+			data, _ := json.Marshal(ctx)
+			resp.Write(data)
+		})
 		http.HandleFunc("/start", func(resp http.ResponseWriter, req *http.Request) {
 			conn, err := upgrader.Upgrade(resp, req, nil)
 			if err != nil {
@@ -123,9 +141,19 @@ func main() {
 		driver := getWebDriver()
 		defer driver.Close()
 		if len(ctx.TargetTripods) > 0 {
-			suggestTripod()
+			job := TripodJob{
+				Web:       WebClient{Driver: driver},
+				LogWriter: writeFunction,
+				Ctx:       ctx,
+			}
+			job.Start()
 		} else {
-			suggestAccessory(writeFunction)
+			job := AccessoryJob{
+				Web:       WebClient{Driver: driver},
+				LogWriter: writeFunction,
+				Ctx:       ctx,
+			}
+			job.Start()
 		}
 	}
 }

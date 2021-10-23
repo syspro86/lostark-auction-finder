@@ -9,6 +9,12 @@ import (
 	"time"
 )
 
+type TripodJob struct {
+	Web       WebClient
+	LogWriter func(string, interface{})
+	Ctx       Context
+}
+
 type TripodItem struct {
 	Name       string
 	Price      int
@@ -21,12 +27,12 @@ type TripodItem struct {
 	UniqueName bool
 }
 
-func suggestTripod() {
+func (job *TripodJob) Start() {
 	//allItemList :=
-	searchTripod()
+	job.searchTripod()
 }
 
-func searchTripod() [][]TripodItem {
+func (job *TripodJob) searchTripod() [][]TripodItem {
 	weapons := make([]TripodItem, 0)
 	helmets := make([]TripodItem, 0)
 	bodys := make([]TripodItem, 0)
@@ -37,7 +43,7 @@ func searchTripod() [][]TripodItem {
 	steps := []string{"무기", "투구", "상의", "하의", "장갑", "어깨"}
 	categories := []string{"장비 - 무기", "장비 - 투구", "장비 - 상의", "장비 - 하의", "장비 - 장갑", "장비 - 어깨"}
 
-	characterClass, _ := getItemsFromCharacter()
+	characterClass, _ := job.Web.getItemsFromCharacter(job.Ctx.CharacterName)
 
 	for step := 0; step < len(steps); step++ {
 		dstItems := []*[]TripodItem{&weapons, &helmets, &bodys, &legs, &gloves, &shoulders}[step]
@@ -47,15 +53,15 @@ func searchTripod() [][]TripodItem {
 				searchResult = append(searchResult, src...)
 			}
 		}
-		for i := 0; i < len(ctx.TargetTripods); i++ {
-			tripod1 := ctx.TargetTripods[i]
-			addResult(readOrSearchTripodItem(categories[step], characterClass, steps[step], []string{tripod1[0]}, []string{tripod1[1]}, []string{tripod1[2]}))
-			for j := i + 1; j < len(ctx.TargetTripods); j++ {
-				tripod2 := ctx.TargetTripods[j]
-				addResult(readOrSearchTripodItem(categories[step], characterClass, steps[step], []string{tripod1[0], tripod2[0]}, []string{tripod1[1], tripod2[1]}, []string{tripod1[2], tripod2[2]}))
-				for k := j + 1; k < len(ctx.TargetTripods); k++ {
-					tripod3 := ctx.TargetTripods[k]
-					addResult(readOrSearchTripodItem(categories[step], characterClass, steps[step], []string{tripod1[0], tripod2[0], tripod3[0]}, []string{tripod1[1], tripod2[1], tripod3[1]}, []string{tripod1[2], tripod2[2], tripod3[2]}))
+		for i := 0; i < len(job.Ctx.TargetTripods); i++ {
+			tripod1 := job.Ctx.TargetTripods[i]
+			addResult(job.readOrSearchTripodItem(categories[step], characterClass, steps[step], []string{tripod1[0]}, []string{tripod1[1]}, []string{tripod1[2]}))
+			for j := i + 1; j < len(job.Ctx.TargetTripods); j++ {
+				tripod2 := job.Ctx.TargetTripods[j]
+				addResult(job.readOrSearchTripodItem(categories[step], characterClass, steps[step], []string{tripod1[0], tripod2[0]}, []string{tripod1[1], tripod2[1]}, []string{tripod1[2], tripod2[2]}))
+				for k := j + 1; k < len(job.Ctx.TargetTripods); k++ {
+					tripod3 := job.Ctx.TargetTripods[k]
+					addResult(job.readOrSearchTripodItem(categories[step], characterClass, steps[step], []string{tripod1[0], tripod2[0], tripod3[0]}, []string{tripod1[1], tripod2[1], tripod3[1]}, []string{tripod1[2], tripod2[2], tripod3[2]}))
 				}
 			}
 		}
@@ -66,7 +72,7 @@ func searchTripod() [][]TripodItem {
 	return [][]TripodItem{weapons, helmets, bodys, legs, gloves, shoulders}
 }
 
-func readOrSearchTripodItem(category string, characterClass string, stepName string, skillNames []string, tripodNames []string, tripodLevels []string) [][]string {
+func (job *TripodJob) readOrSearchTripodItem(category string, characterClass string, stepName string, skillNames []string, tripodNames []string, tripodLevels []string) [][]string {
 	// filename
 	fileName := fmt.Sprintf("트포_%s", stepName)
 	for i := 0; i < len(skillNames); i++ {
@@ -86,17 +92,17 @@ func readOrSearchTripodItem(category string, characterClass string, stepName str
 		json.Unmarshal(data, tmp)
 		return *tmp
 	} else {
-		loginStove()
-		openAuction()
+		job.Web.loginStove()
+		job.Web.openAuction()
 
-		selectDetailOption(".lui-modal__window .select--deal-category", category)
-		selectDetailOption(".lui-modal__window .select--deal-class", characterClass)
-		selectDetailOption(".lui-modal__window .select--deal-itemtier", "티어 3")
+		job.Web.selectDetailOption(".lui-modal__window .select--deal-category", category)
+		job.Web.selectDetailOption(".lui-modal__window .select--deal-class", characterClass)
+		job.Web.selectDetailOption(".lui-modal__window .select--deal-itemtier", "티어 3")
 
 		for i := 0; i < len(skillNames); i++ {
-			selectEtcDetailOption(fmt.Sprintf(".lui-modal__window #selSkill_%d", i), skillNames[i])
-			selectEtcDetailOption(fmt.Sprintf(".lui-modal__window #selSkillSub_%d", i), tripodNames[i])
-			selectSkillMinLevel(fmt.Sprintf(".lui-modal__window #txtSkillMin_%d", i), tripodLevels[i])
+			job.Web.selectEtcDetailOption(fmt.Sprintf(".lui-modal__window #selSkill_%d", i), skillNames[i])
+			job.Web.selectEtcDetailOption(fmt.Sprintf(".lui-modal__window #selSkillSub_%d", i), tripodNames[i])
+			job.Web.selectSkillMinLevel(fmt.Sprintf(".lui-modal__window #txtSkillMin_%d", i), tripodLevels[i])
 		}
 
 		progMsg := fmt.Sprintf("%s 검색", stepName)
@@ -105,11 +111,11 @@ func readOrSearchTripodItem(category string, characterClass string, stepName str
 		}
 		log.Println(progMsg)
 
-		ret, retry := searchAndGetResults()
+		ret, retry := job.Web.searchAndGetResults(job.Ctx.AuctionItemCount)
 		for retry {
 			log.Println("1분후 재검색")
 			time.Sleep(time.Minute)
-			ret, retry = searchAndGetResults()
+			ret, retry = job.Web.searchAndGetResults(job.Ctx.AuctionItemCount)
 		}
 		log.Printf("검색 결과 [%d]건", len(ret))
 		if toolConfig.CacheSearchResult {

@@ -38,7 +38,6 @@ type Context struct {
 	Grade              string
 	AuctionItemCount   int // 옵션별 최소 몇개 경매품 검색할 지
 	// 목표 관련
-	Budget          int // 예산 (골드)
 	TargetBuffs     map[string]int
 	TargetBuffNames []string // 맞추려는 각인
 	TargetLevels    []int

@@ -13,8 +13,9 @@
         <md-toolbar md-scroll-shrink>
             <div class="md-toolbar-tools" layout="row">
                 <md-input-container flex>
-                    <input type="text" ng-model="characterName" name="characterName" ng-keypress="characterName_keydown($event)">
+                    <input type="text" ng-model="context.CharacterName" name="characterName" ng-keypress="characterName_keydown($event)">
                 </md-input-container>
+                <select ng-model="context.Grade" ng-options="x for x in loa.Const.Grades"></select>
                 <md-button class="md-raised" ng-click="start()">Start</md-button>
             </div>
         </md-toolbar>
@@ -49,6 +50,30 @@
             $scope.logs = []
             $scope.resultHeader = []
             $scope.result = []
+            $scope.loa = {
+                'Const': {},
+            }
+            $scope.context = {}
+
+            $scope.init = function() {
+                $http({
+                    method: 'GET',
+                    url: "/loa/const",
+                }).then(function (resp) {
+                    $scope.loa.Const = resp.data
+                    // $mdToast.show($mdToast.simple().textContent(resp.data).hideDelay(3000))
+                }).catch(function () {
+                })
+                $http({
+                    method: 'GET',
+                    url: "/context",
+                }).then(function (resp) {
+                    $scope.context = resp.data
+                    // $mdToast.show($mdToast.simple().textContent(resp.data).hideDelay(3000))
+                }).catch(function () {
+                })
+            }
+            $scope.init()
 
             $scope.characterName_keydown = function(event) {
                 if (event.which == 13) {
@@ -64,7 +89,7 @@
                 var websocket = new WebSocket("ws://localhost:5555/start")
                 websocket.onopen = function () {
                     console.log('Connected')
-                    websocket.send($scope.characterName)
+                    websocket.send(JSON.stringify($scope.context))
                 }
                 websocket.onclose = function () {
                     console.log('Closed')

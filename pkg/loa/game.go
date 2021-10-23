@@ -6,6 +6,7 @@ type GameConst struct {
 	Debuffs              []string
 	MaxBuffPointPerGrade map[string]int
 	Peons                map[string]map[string]int
+	Grades               []string
 	Tier                 string
 }
 
@@ -46,5 +47,6 @@ var Const = GameConst{
 		"유물": {"어빌리티 스톤": 9, "목걸이": 25, "귀걸이": 25, "반지": 35},
 		"고대": {"어빌리티 스톤": 0, "목걸이": 35, "귀걸이": 25, "반지": 35},
 	},
-	Tier: "티어 3",
+	Grades: []string{"전설", "유물", "고대"},
+	Tier:   "티어 3",
 }
