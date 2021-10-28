@@ -38,13 +38,11 @@ type Context struct {
 	Grade              string
 	AuctionItemCount   int // 옵션별 최소 몇개 경매품 검색할 지
 	// 목표 관련
-	TargetBuffs     map[string]int
-	TargetBuffNames []string // 맞추려는 각인
-	TargetLevels    []int
-	TargetStats     []string // 2차 스탯
-	TargetQuality   string   // "전체 품질", 10 이상, 90 이상
-	OnlyFirstStat   bool
-	MaxDebuffLevel  int
+	TargetBuffs    map[string]int
+	TargetStats    []string // 2차 스탯
+	TargetQuality  string   // "전체 품질", 10 이상, 90 이상
+	OnlyFirstStat  bool
+	MaxDebuffLevel int
 
 	TargetTripods [][]string
 }
@@ -54,13 +52,6 @@ func (ctx *Context) Load(fileName string) {
 		tmp := Context{}
 		if err := json.Unmarshal(data, &tmp); err == nil {
 			*ctx = tmp
-
-			ctx.TargetBuffNames = make([]string, 0)
-			ctx.TargetLevels = make([]int, 0)
-			for name, level := range ctx.TargetBuffs {
-				ctx.TargetBuffNames = append(ctx.TargetBuffNames, name)
-				ctx.TargetLevels = append(ctx.TargetLevels, level*5)
-			}
 			ctx.OnlyFirstStat = true
 		} else {
 			log.Println(err)

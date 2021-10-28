@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"strconv"
 	"time"
 )
@@ -8,6 +9,12 @@ import (
 func panicIfError(err error) {
 	if err != nil {
 		panic(err)
+	}
+}
+
+func printIfError(err error) {
+	if err != nil {
+		log.Println(err)
 	}
 }
 

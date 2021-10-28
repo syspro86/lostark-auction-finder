@@ -13,9 +13,11 @@ import (
 )
 
 type AccessoryJob struct {
-	Web       WebClient
-	LogWriter func(string, interface{})
-	Ctx       Context
+	Web             WebClient
+	LogWriter       func(string, interface{})
+	Ctx             Context
+	TargetBuffNames []string
+	TargetLevels    []int
 }
 
 type AccessoryItem struct {
@@ -32,6 +34,13 @@ type AccessoryItem struct {
 }
 
 func (job *AccessoryJob) Start() {
+	job.TargetBuffNames = make([]string, 0)
+	job.TargetLevels = make([]int, 0)
+	for name, level := range job.Ctx.TargetBuffs {
+		job.TargetBuffNames = append(job.TargetBuffNames, name)
+		job.TargetLevels = append(job.TargetLevels, level*5)
+	}
+
 	allItemList := job.searchAccessory()
 
 	sumArray := func(srcs ...[]int) []int {
@@ -69,7 +78,7 @@ func (job *AccessoryJob) Start() {
 	resultHeader = append(resultHeader, "부위 골드")
 	resultHeader = append(resultHeader, "부위 페온")
 	resultHeader = append(resultHeader, "아이템 이름")
-	resultHeader = append(resultHeader, job.Ctx.TargetBuffNames...)
+	resultHeader = append(resultHeader, job.TargetBuffNames...)
 	resultHeader = append(resultHeader, "퀄리티")
 	resultHeader = append(resultHeader, job.Ctx.TargetStats...)
 	resultHeader = append(resultHeader, "디버프")
@@ -142,7 +151,7 @@ func (job *AccessoryJob) Start() {
 				statDescHeader += fmt.Sprintf("%s %d ", v, curStats[i])
 			}
 			buffHeader := ""
-			for _, v := range job.Ctx.TargetBuffNames {
+			for _, v := range job.TargetBuffNames {
 				buffHeader += fmt.Sprintf("%s ", fill(v, 20))
 			}
 			statHeader := ""
@@ -150,6 +159,7 @@ func (job *AccessoryJob) Start() {
 				statHeader += fmt.Sprintf("%s ", fill(v, 6))
 			}
 
+			itemList := []AccessoryItem{}
 			for i, v := range itemIndexList {
 				resultRow := []string{}
 				resultRow = append(resultRow, fmt.Sprintf("%d", (len(allTable)+len(itemIndexList)-1)/len(itemIndexList)))
@@ -157,30 +167,34 @@ func (job *AccessoryJob) Start() {
 				resultRow = append(resultRow, fmt.Sprintf("%d", curPrice))
 				resultRow = append(resultRow, fmt.Sprintf("%d", curPeon))
 				resultRow = append(resultRow, getDebuffDescAll(curDebuffs))
-				for _, v := range curStats {
-					resultRow = append(resultRow, fmt.Sprintf("%d", v))
+				for _, vv := range curStats {
+					resultRow = append(resultRow, fmt.Sprintf("%d", vv))
 				}
 				resultRow = append(resultRow, fmt.Sprintf("%d", allItemList[i][v].Price))
 				resultRow = append(resultRow, fmt.Sprintf("%d", allItemList[i][v].Peon))
 				resultRow = append(resultRow, allItemList[i][v].Name)
-				for _, v := range allItemList[i][v].Buffs {
-					resultRow = append(resultRow, fmt.Sprintf("%d", v))
+				for _, vv := range allItemList[i][v].Buffs {
+					resultRow = append(resultRow, fmt.Sprintf("%d", vv))
 				}
 				resultRow = append(resultRow, allItemList[i][v].Quality)
-				for _, v := range allItemList[i][v].Stats {
-					resultRow = append(resultRow, fmt.Sprintf("%d", v))
+				for _, vv := range allItemList[i][v].Stats {
+					resultRow = append(resultRow, fmt.Sprintf("%d", vv))
 				}
 				resultRow = append(resultRow, allItemList[i][v].DebuffDesc)
 				allTable = append(allTable, resultRow)
 
-				job.LogWriter("result", map[string]interface{}{
-					"price":   curPrice,
-					"peon":    curPeon,
-					"debuffs": getDebuffDescAll(curDebuffs),
-					"stats":   curStats,
-				})
+				itemList = append(itemList, allItemList[i][v])
 				// saveExcel()
 			}
+			job.LogWriter("result", map[string]interface{}{
+				"price":     curPrice,
+				"peon":      curPeon,
+				"debuffs":   getDebuffDescAll(curDebuffs),
+				"stats":     curStats,
+				"buffNames": job.TargetBuffNames,
+				"statNames": job.Ctx.TargetStats,
+				"items":     itemList,
+			})
 
 			msg := fmt.Sprintf("(골드) %d (페온) %d (디버프) %s (스탯 합) %s\n", curPrice, curPeon, getDebuffDescAll(curDebuffs), statDescHeader)
 			msg += fmt.Sprintf(" %s%s%s%s\n",
@@ -190,7 +204,7 @@ func (job *AccessoryJob) Start() {
 				fill("품질", 6))
 			for i, v := range itemIndexList {
 				buffStr := ""
-				for z := range job.Ctx.TargetBuffNames {
+				for z := range job.TargetBuffNames {
 					buffStr += fmt.Sprintf("%20d ", allItemList[i][v].Buffs[z])
 				}
 				statStr := ""
@@ -209,6 +223,7 @@ func (job *AccessoryJob) Start() {
 			msg += "\n"
 			log.Println(msg)
 			// writeLog("log", msg)
+			// saveExcel()
 
 			return
 		}
@@ -234,8 +249,8 @@ func (job *AccessoryJob) Start() {
 			getInsufficientPoint := func(arr []int) int {
 				pt := 0
 				for i, num := range arr {
-					if num < job.Ctx.TargetLevels[i] {
-						pt += job.Ctx.TargetLevels[i] - num
+					if num < job.TargetLevels[i] {
+						pt += job.TargetLevels[i] - num
 					}
 				}
 				return pt
@@ -255,7 +270,7 @@ func (job *AccessoryJob) Start() {
 	}
 
 	checkItemSet(0, 0, 0,
-		make([]int, len(job.Ctx.TargetBuffNames)),
+		make([]int, len(job.TargetBuffNames)),
 		make([]int, len(job.Ctx.TargetStats)),
 		make([]int, len(loa.Const.Debuffs)),
 		make([]int, 0),
@@ -285,7 +300,7 @@ func (job *AccessoryJob) searchAccessory() [][]AccessoryItem {
 		addToItems := func(searchResult [][]string, usePeon bool) {
 			for _, item := range searchResult {
 				part := strings.Split(item[1], ";")
-				eachBuff := make([]int, len(job.Ctx.TargetBuffNames))
+				eachBuff := make([]int, len(job.TargetBuffNames))
 				eachStat := make([]int, len(job.Ctx.TargetStats))
 				eachDebuff := make([]int, len(loa.Const.Debuffs))
 				eachQuality := ""
@@ -302,7 +317,7 @@ func (job *AccessoryJob) searchAccessory() [][]AccessoryItem {
 					} else {
 						rlevel = parseInt(strings.Split(p, "+")[1])
 					}
-					if i := arrayIndexOf(job.Ctx.TargetBuffNames, rname); i >= 0 {
+					if i := arrayIndexOf(job.TargetBuffNames, rname); i >= 0 {
 						eachBuff[i] = rlevel
 					}
 					if i := arrayIndexOf(job.Ctx.TargetStats, rname); i >= 0 {
@@ -339,30 +354,33 @@ func (job *AccessoryJob) searchAccessory() [][]AccessoryItem {
 		}
 		addToItems(characterItems[step], false)
 
-		for i := 0; i < len(job.Ctx.TargetBuffNames); i++ {
-			for j := i + 1; j < len(job.Ctx.TargetBuffNames); j++ {
+		for i := 0; i < len(job.TargetBuffNames); i++ {
+			for j := i + 1; j < len(job.TargetBuffNames); j++ {
 				if step == 0 {
-					if arrayIndexOf(loa.Const.ClassBuffs, job.Ctx.TargetBuffNames[i]) >= 0 || arrayIndexOf(loa.Const.ClassBuffs, job.Ctx.TargetBuffNames[j]) >= 0 {
+					if arrayIndexOf(loa.Const.ClassBuffs, job.TargetBuffNames[i]) >= 0 || arrayIndexOf(loa.Const.ClassBuffs, job.TargetBuffNames[j]) >= 0 {
+						continue
+					}
+					if job.TargetBuffNames[i] > job.TargetBuffNames[j] {
 						continue
 					}
 				}
 				switch step {
 				case 0:
-					addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.Ctx.TargetBuffNames[i], job.Ctx.TargetBuffNames[j], "", "", ""), true)
+					addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[i], job.TargetBuffNames[j], "", "", ""), true)
 				case 1:
-					addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.Ctx.TargetBuffNames[i], job.Ctx.TargetBuffNames[j], job.Ctx.TargetStats[0], job.Ctx.TargetStats[1], qualities[step]), true)
-					addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.Ctx.TargetBuffNames[i], "", job.Ctx.TargetStats[0], job.Ctx.TargetStats[1], qualities[step]), true)
-					addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.Ctx.TargetBuffNames[j], "", job.Ctx.TargetStats[0], job.Ctx.TargetStats[1], qualities[step]), true)
+					addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[i], job.TargetBuffNames[j], job.Ctx.TargetStats[0], job.Ctx.TargetStats[1], qualities[step]), true)
+					addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[i], "", job.Ctx.TargetStats[0], job.Ctx.TargetStats[1], qualities[step]), true)
+					addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[j], "", job.Ctx.TargetStats[0], job.Ctx.TargetStats[1], qualities[step]), true)
 				case 2:
 					fallthrough
 				case 3:
-					addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.Ctx.TargetBuffNames[i], job.Ctx.TargetBuffNames[j], job.Ctx.TargetStats[0], "", qualities[step]), true)
-					addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.Ctx.TargetBuffNames[i], "", job.Ctx.TargetStats[0], "", qualities[step]), true)
-					addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.Ctx.TargetBuffNames[j], "", job.Ctx.TargetStats[0], "", qualities[step]), true)
+					addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[i], job.TargetBuffNames[j], job.Ctx.TargetStats[0], "", qualities[step]), true)
+					addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[i], "", job.Ctx.TargetStats[0], "", qualities[step]), true)
+					addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[j], "", job.Ctx.TargetStats[0], "", qualities[step]), true)
 					if !job.Ctx.OnlyFirstStat {
-						addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.Ctx.TargetBuffNames[i], job.Ctx.TargetBuffNames[j], job.Ctx.TargetStats[1], "", qualities[step]), true)
-						addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.Ctx.TargetBuffNames[i], "", job.Ctx.TargetStats[1], "", qualities[step]), true)
-						addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.Ctx.TargetBuffNames[j], "", job.Ctx.TargetStats[1], "", qualities[step]), true)
+						addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[i], job.TargetBuffNames[j], job.Ctx.TargetStats[1], "", qualities[step]), true)
+						addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[i], "", job.Ctx.TargetStats[1], "", qualities[step]), true)
+						addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[j], "", job.Ctx.TargetStats[1], "", qualities[step]), true)
 					}
 				}
 			}
@@ -372,9 +390,9 @@ func (job *AccessoryJob) searchAccessory() [][]AccessoryItem {
 
 	bookBuffItems := make([]AccessoryItem, 0)
 	for name, leanBuffLevel := range job.Ctx.LearnedBuffs {
-		index := arrayIndexOf(job.Ctx.TargetBuffNames, name)
+		index := arrayIndexOf(job.TargetBuffNames, name)
 		if index >= 0 {
-			buffs := make([]int, len(job.Ctx.TargetBuffNames))
+			buffs := make([]int, len(job.TargetBuffNames))
 			buffs[index] = leanBuffLevel
 			bookBuffItems = append(bookBuffItems, AccessoryItem{
 				Name:    "[각인]" + name,
@@ -408,7 +426,7 @@ func (job *AccessoryJob) readOrSearchItem(category string, characterClass string
 	// 캐시 데이터가 한시간 이상 지났으면 삭제
 	if stat, err := os.Stat(toolConfig.CachePath + fileName); err == nil {
 		if stat.ModTime().Add(time.Hour * 24).Before(time.Now()) {
-			os.Remove(toolConfig.FileBase + fileName)
+			//os.Remove(toolConfig.FileBase + fileName)
 		}
 	}
 

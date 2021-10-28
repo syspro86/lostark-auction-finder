@@ -10,27 +10,74 @@
 
 <body ng-app="MyApp" ng-controller="MyController" ng-cloak>
     <section layout="column" style="height: 100%; overflow: hidden">
-        <md-toolbar md-scroll-shrink>
-            <div class="md-toolbar-tools" layout="row">
+        <md-content layout="column">
+            <div layout="row">
                 <md-input-container flex>
+                    <label>캐릭터명</label>
                     <input type="text" ng-model="context.CharacterName" name="characterName" ng-keypress="characterName_keydown($event)">
                 </md-input-container>
-                <select ng-model="context.Grade" ng-options="x for x in loa.Const.Grades"></select>
+                <md-input-container>
+                    <label>아이템 등급</label>
+                    <md-select ng-model="context.Grade" >
+                        <md-option ng-repeat="x in loa.Const.Grades track by $index" ng-value="x">{{ x }}</md-option>
+                    </md-select>
+                </md-input-container>
+            </div>
+            <div layout="row">
+                <md-autocomplete
+                    md-selected-item="selectedBuff"
+                    md-items="item in loa.Const.Buffs"
+                    md-item-text="item"
+                    md-min-length="0"
+                    placeholder="각인명 입력">
+                    <md-item-template>
+                        <span md-highlight-text="selectedBuff" md-highlight-flags="^i">{{item}}</span>
+                      </md-item-template>
+                </md-autocomplete>
+            </div>
+            <div layout="row" layout-align="end">
                 <md-button class="md-raised" ng-click="start()">Start</md-button>
             </div>
-        </md-toolbar>
+        </md-content>
         <md-content layout="column" style="overflow: auto">
             <md-list>
-            <md-list-item class="md-1-line" ng-repeat="log in logs" layout="row">
-                <span flex>{{ log }}</span>
-            </md-list-item>
-            </md-list>
-            <md-list>
                 <md-list-item class="md-1-line" layout="row">
-                    <span flex ng-repeat="cell in resultHeader">{{ cell }}</span>
+                    <span flex>골드</span>
+                    <span flex>페온</span>
+                    <span flex>디버프</span>
+                    <span flex>스탯</span>
                 </md-list-item>
                 <md-list-item class="md-1-line" ng-repeat="data in result track by $index" layout="row">
-                    <span flex ng-repeat="cell in data track by $index">{{ cell }}</span>
+                    <md-content flex layout="column">
+                        <span layout="row" ng-click="data.toggle()">
+                            <span flex>{{ data.price }}</span>
+                            <span flex>{{ data.peon }}</span>
+                            <span flex>{{ data.debuffs }}</span>
+                            <span flex>{{ data.stats }}</span>
+                        </span>
+                        <span layout="row" flex ng-if="data.show">
+                            <md-list flex>
+                                <md-list-item class="md-1-line" layout="row">
+                                    <span flex>골드</span>
+                                    <span flex>아이템이름</span>
+                                    <span flex ng-repeat="name in data.buffNames track by $index">{{ name }}</span>
+                                    <span flex ng-repeat="name in data.statNames track by $index">{{ name }}</span>
+                                    <span flex>-각인</span>
+                                    <span flex>기타각인</span>
+                                    <span flex>품질</span>
+                                </md-list-item>
+                                <md-list-item class="md-1-line" ng-repeat="item in data.items track by $index" layout="row">
+                                    <span flex>{{ item.Price }}</span>
+                                    <span flex>{{ item.Name }}</span>
+                                    <span flex ng-repeat="buff in item.Buffs track by $index">{{ buff }}</span>
+                                    <span flex ng-repeat="stat in item.Stats track by $index">{{ stat }}</span>
+                                    <span flex>{{ item.DebuffDesc }}</span>
+                                    <span flex>{{ item.EtcBuffs }}</span>
+                                    <span flex>{{ item.Quality }}</span>
+                                </md-list-item>
+                            </md-list>
+                        </span>
+                    </md-content>
                 </md-list-item>
             </md-list>
             </md-content>
@@ -43,11 +90,11 @@
 	<script src="/js/angular-material.min.js"></script>
 
     <script>
+        // https://material.angularjs.org/latest/demo/toast
         var app = angular.module('MyApp', ['ngMaterial']);
         app.controller('MyController', MyController);
         function MyController($scope, $http, $timeout, $mdToast, $mdDialog) {
             $scope.characterName = "sysprolancer"
-            $scope.logs = []
             $scope.resultHeader = []
             $scope.result = []
             $scope.loa = {
@@ -61,7 +108,6 @@
                     url: "/loa/const",
                 }).then(function (resp) {
                     $scope.loa.Const = resp.data
-                    // $mdToast.show($mdToast.simple().textContent(resp.data).hideDelay(3000))
                 }).catch(function () {
                 })
                 $http({
@@ -69,7 +115,6 @@
                     url: "/context",
                 }).then(function (resp) {
                     $scope.context = resp.data
-                    // $mdToast.show($mdToast.simple().textContent(resp.data).hideDelay(3000))
                 }).catch(function () {
                 })
             }
@@ -97,11 +142,17 @@
                 websocket.onmessage = function (e) {
                     var data = JSON.parse(e.data)
                     if (data.type == "log") {
-                        $scope.logs.push(data.data)
+                        console.log(data.data)
+                        var toast = $mdToast.simple().textContent(data.data).hideDelay(3000)
+                        $mdToast.show(toast)
                     } else if (data.type == "resultHeader") {
                         $scope.resultHeader = data.data
                         $scope.result = []
                     } else if (data.type == "result") {
+                        data.data.show = false
+                        data.data.toggle = function() {
+                            this.show = !this.show
+                        }
                         $scope.result.push(data.data)
                     } else if (data.type == "end") {
                     }

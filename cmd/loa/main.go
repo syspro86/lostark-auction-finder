@@ -10,18 +10,20 @@ import (
 	"os/exec"
 	"os/user"
 	"runtime"
+	"syscall"
 
 	"github.com/gorilla/websocket"
 	"github.com/syspro86/lostark-auction-finder/pkg/loa"
 	"github.com/tebeka/selenium"
 	"github.com/tebeka/selenium/chrome"
+	"github.com/zserge/lorca"
 )
 
 func getWebDriver() selenium.WebDriver {
 	caps := selenium.Capabilities{"browserName": "chrome"}
 	caps.AddChrome(chrome.Capabilities{Args: []string{fmt.Sprintf("--user-data-dir=%s", toolConfig.ChromeUserDataPath)}})
 	driver, err := selenium.NewRemote(caps, toolConfig.SeleniumURL)
-	panicIfError(err)
+	printIfError(err)
 	return driver
 }
 
@@ -35,9 +37,14 @@ func main() {
 		toolConfig.SeleniumURL = "http://localhost:4444/wd/hub"
 	}
 	if toolConfig.ChromeUserDataPath == "" {
-		service, err := selenium.NewChromeDriverService("chromedriver.exe", 4444)
-		panicIfError(err)
-		defer service.Stop()
+		cmd := exec.Command("chromedriver.exe", "--port=4444", "--url-base=wd/hub", "--verbose")
+		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+		cmd.Start()
+		defer cmd.Process.Kill()
+
+		// service, err := selenium.NewChromeDriverService("chromedriver.exe", 4444)
+		// panicIfError(err)
+		// defer service.Stop()
 
 		user, err := user.Current()
 		panicIfError(err)
@@ -58,8 +65,8 @@ func main() {
 
 	if runtime.GOOS == "windows" {
 		upgrader := websocket.Upgrader{
-			ReadBufferSize:  1024,
-			WriteBufferSize: 1024,
+			ReadBufferSize:  1024 * 1024,
+			WriteBufferSize: 1024 * 1024,
 		}
 
 		startSearch := func(conn *websocket.Conn) {
@@ -122,12 +129,40 @@ func main() {
 
 			startSearch(conn)
 		})
-		if err := exec.Command("rundll32", "url.dll,FileProtocolHandler", "http://localhost:5555/").Start(); err != nil {
-			panic(err)
+		// if err := exec.Command("rundll32", "url.dll,FileProtocolHandler", "http://localhost:5555/").Start(); err != nil {
+		// 	panic(err)
+		// }
+
+		httpStop := make(chan bool)
+		go func() {
+			http.ListenAndServe(":5555", nil)
+			httpStop <- true
+		}()
+
+		ui, err := lorca.New("http://localhost:5555", "", 480, 320)
+		if err != nil {
+			log.Fatal(err)
 		}
-		if err := http.ListenAndServe(":5555", nil); err != nil {
-			panicIfError(err)
+		defer ui.Close()
+
+		// ui.Load("http://localhost:5555")
+
+		select {
+		case <-ui.Done():
+		case <-httpStop:
 		}
+
+		// if err := http.ListenAndServe(":5555", nil); err != nil {
+		// 	panicIfError(err)
+		// }
+
+		// wv := webview.New(false)
+		// defer wv.Destroy()
+
+		// wv.SetTitle("LostArk Auction Finder")
+		// wv.SetSize(800, 600, webview.HintNone)
+		// wv.Navigate("http://localhost:5555/")
+		// wv.Run()
 	} else {
 		log.Printf("캐릭터: %s\n", ctx.CharacterName)
 		if ctx.CharacterName == "" {
