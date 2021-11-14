@@ -10,7 +10,7 @@
 
 <body ng-app="MyApp" ng-controller="MyController" ng-cloak>
     <md-content layout="column" style="height: 100%; overflow: hidden;" layout-padding>
-        <md-tabs md-dynamic-height md-border-bottom style="max-width: 1000px;">
+        <md-tabs style="max-width: 1000px;" flex>
             <md-tab label="캐릭터">
                 <md-content class="md-padding" layout="column">
                     <div layout="column">
@@ -79,14 +79,17 @@
                 </md-content>
             </md-tab>
             <md-tab label="검색">
-                <md-content class="md-padding" layout="column" style="overflow: auto">
-                    <md-button class="md-raised" ng-click="start()">Start</md-button>
-                    <md-list flex>
+                <md-content class="md-padding" layout="column" style="height: 100%; overflow: hidden;">
+                    <div layout="row">
+                        <md-progress-circular ng-if="searchRunning" md-mode="indeterminate"></md-progress-circular>
+                        <md-button class="md-raised" ng-disabled="searchRunning" ng-click="start()" flex>Start</md-button>
+                    </div>
+                    <md-list flex style="overflow: auto">
                         <md-list-item class="md-1-line" layout="row">
                             <span flex>골드</span>
                             <span flex>페온</span>
                             <span flex>디버프</span>
-                            <span flex>스탯</span>
+                            <span flex>전투 특성</span>
                         </md-list-item>
                         <md-list-item class="md-1-line" ng-repeat="data in result track by $index" layout="row" ng-click="null">
                             <md-content flex layout="column">
@@ -156,6 +159,7 @@
             }
             $scope.autocompleteBuffs = []
             $scope.autocompleteBuffsT = []
+            $scope.searchRunning = false
 
             if (localStorage.getItem("context")) {
                 $scope.context = JSON.parse(localStorage.getItem("context"))
@@ -275,8 +279,11 @@
                         data.data.toggle = function() {
                             this.show = !this.show
                         }
-                        $scope.result.push(data.data)
+                        $scope.$apply(function() {
+                            $scope.result.push(data.data)
+                        })
                     } else if (data.type == "end") {
+                        $scope.searchRunning = false
                     }
                 }
                 websocket.onerror = function (e) {
@@ -310,6 +317,7 @@
                 if ($scope.ws == null) {
                     $scope.ws = connectWS()
                 }
+                $scope.searchRunning = true
                 $scope.ws.send(JSON.stringify({
                     "type": "search",
                     "data": $scope.context
