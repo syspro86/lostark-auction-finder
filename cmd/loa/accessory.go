@@ -13,8 +13,8 @@ import (
 )
 
 type AccessoryJob struct {
-	Web             WebClient
-	LogWriter       func(string, interface{})
+	Web             *WebClient
+	LogWriter       WriteFunction
 	Ctx             Context
 	TargetBuffNames []string
 	TargetLevels    []int
@@ -138,7 +138,7 @@ func (job *AccessoryJob) Start() {
 				desc := ""
 				for i, v := range arr {
 					if v > 0 {
-						if v > 5 {
+						if v >= 5 {
 							desc += fmt.Sprintf("%s(%d) ", loa.Const.Debuffs[i], int(v/5))
 						}
 					}
@@ -288,7 +288,9 @@ func (job *AccessoryJob) searchAccessory() [][]AccessoryItem {
 	categories := []string{"어빌리티 스톤 - 전체", "장신구 - 목걸이", "장신구 - 귀걸이", "장신구 - 반지"}
 	qualities := []string{"전체 품질", job.Ctx.TargetQuality, job.Ctx.TargetQuality, job.Ctx.TargetQuality}
 
-	characterClass, characterItems := job.Web.getItemsFromCharacter(job.Ctx.CharacterName)
+	charInfo, _ := job.Web.GetItemsFromCharacter(job.Ctx.CharacterName)
+	characterClass := charInfo.ClassName
+	characterItems := [][][]string{charInfo.Stone, charInfo.Neck, charInfo.Ear, charInfo.Ring}
 	job.Ctx.Grade = loa.Const.Grades[1]
 
 	for step := range steps {

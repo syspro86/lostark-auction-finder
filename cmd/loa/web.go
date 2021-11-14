@@ -4,38 +4,92 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os/user"
 	"reflect"
 	"strings"
 	"time"
 
 	"github.com/tebeka/selenium"
+	"github.com/zserge/lorca"
 )
 
 type WebClient struct {
-	Driver selenium.WebDriver
+	UseSelenium bool
+	Driver      selenium.WebDriver
+	GUI         lorca.UI
 }
 
-func (client *WebClient) getItemsFromCharacter(characterName string) (string, [][][]string) {
-	for {
-		client.Driver.SetImplicitWaitTimeout(10 * time.Second)
-		err := client.Driver.Get(fmt.Sprintf("https://lostark.game.onstove.com/Profile/Character/%s", characterName))
-		panicIfError(err)
+type CharacterInfo struct {
+	CharacterName string
+	ClassName     string
+	Stone         [][]string
+	Neck          [][]string
+	Ear           [][]string
+	Ring          [][]string
+}
 
-		sleepShortly()
-		success, err := client.Driver.ExecuteScript(`
-			var profile = document.querySelectorAll("#profile-ability script");
-			if (profile.length == 0) {
-				return "";
-			}
-			return profile[0].innerText
-		`, nil)
+type WebClientLoadTimeout struct{}
+
+func (err *WebClientLoadTimeout) Error() string {
+	return "Load timeout"
+}
+
+func (client *WebClient) InitSelenium() {
+	if toolConfig.SeleniumURL == "" {
+		closeChrome := client.InitChromeDriver()
+		defer closeChrome()
+		toolConfig.SeleniumURL = "http://localhost:4444/wd/hub"
+	}
+	if toolConfig.ChromeUserDataPath == "" {
+		user, err := user.Current()
 		panicIfError(err)
-		if success == "" {
+		toolConfig.ChromeUserDataPath = fmt.Sprintf("%s\\AppData\\Local\\Google\\Chrome\\User Data\\", user.HomeDir)
+	}
+}
+
+func (client *WebClient) GetItemsFromCharacter(characterName string) (CharacterInfo, error) {
+	charInfo := CharacterInfo{}
+	for {
+		profileJson := ""
+		if client.UseSelenium {
+			client.Driver.SetImplicitWaitTimeout(10 * time.Second)
+			err := client.Driver.Get(fmt.Sprintf("https://lostark.game.onstove.com/Profile/Character/%s", characterName))
+			panicIfError(err)
+
 			sleepShortly()
-			continue
+			success, err := client.Driver.ExecuteScript(`
+				var profile = document.querySelectorAll("#profile-ability script");
+				if (profile.length == 0) {
+					return "";
+				}
+				return profile[0].innerText
+			`, nil)
+			panicIfError(err)
+			if success == "" {
+				sleepShortly()
+				continue
+			}
+			profileJson = success.(string)
+		} else {
+			ui, err := lorca.New("", "", 400, 400, "--headless")
+			panicIfError(err)
+			defer ui.Close()
+
+			ui.Load(fmt.Sprintf("https://lostark.game.onstove.com/Profile/Character/%s", characterName))
+			val := ui.Eval(`document.querySelectorAll("#profile-ability script").length`)
+			for cnt := 0; cnt < 10 && val.Int() == 0; cnt++ {
+				time.Sleep(time.Second)
+				val = ui.Eval(`document.querySelectorAll("#profile-ability script").length`)
+			}
+			if val.Int() == 0 {
+				return CharacterInfo{}, &WebClientLoadTimeout{}
+			}
+			val = ui.Eval(`
+				document.querySelectorAll("#profile-ability script")[0].innerText
+			`)
+			profileJson = val.String()
 		}
 
-		profileJson := success.(string)
 		profileJson = profileJson[strings.Index(profileJson, "{"):]
 		profileJson = profileJson[:strings.LastIndex(profileJson, "}")+1]
 		// os.WriteFile("character.json", []byte(profileJson), 0644)
@@ -81,21 +135,13 @@ func (client *WebClient) getItemsFromCharacter(characterName string) (string, []
 				}
 				return str
 			}
-
-			stoneStrings := make([][]string, 0)
-			neckStrings := make([][]string, 0)
-			earStrings := make([][]string, 0)
-			ringStrings := make([][]string, 0)
-			characterClass := ""
-
 			for key, value := range propertyList {
 				if strings.Contains(value, "전용") {
 					value = removeTag(value)
 					value = strings.ReplaceAll(value, "전용", "")
 					value = strings.Trim(value, " ")
-					if characterClass == "" {
-						characterClass = value
-						log.Printf("CLASS: %s\n", characterClass)
+					if charInfo.ClassName == "" {
+						charInfo.ClassName = value
 					}
 				}
 				if strings.HasSuffix(key, "Element_005.value.Element_000") {
@@ -110,11 +156,10 @@ func (client *WebClient) getItemsFromCharacter(characterName string) (string, []
 						buffString = strings.ReplaceAll(buffString, "<BR>", ";")
 						buffString = strings.ReplaceAll(buffString, "활성도", "Lv")
 						buffString = removeTag(buffString)
-
-						log.Printf("ITEM %s %s", nameString, buffString)
+						// log.Printf("ITEM %s %s", nameString, buffString)
 
 						if strings.Contains(nameString, "의 돌") {
-							stoneStrings = append(stoneStrings, []string{"[내꺼]" + nameString, buffString, "0", "-"})
+							charInfo.Stone = append(charInfo.Stone, []string{"[내꺼]" + nameString, buffString, "0", "-"})
 						}
 					}
 				}
@@ -148,21 +193,19 @@ func (client *WebClient) getItemsFromCharacter(characterName string) (string, []
 								buffString += ";" + statString1
 							}
 						}
-						log.Printf("ITEM %s %s", nameString, buffString)
+						// log.Printf("ITEM %s %s", nameString, buffString)
 
 						if strings.Contains(nameString, "목걸이") {
-							neckStrings = append(neckStrings, []string{"[내꺼]" + nameString, buffString, "0", qualityString})
+							charInfo.Neck = append(charInfo.Neck, []string{"[내꺼]" + nameString, buffString, "0", qualityString})
 						} else if strings.Contains(nameString, "귀걸이") {
-							earStrings = append(earStrings, []string{"[내꺼]" + nameString, buffString, "0", qualityString})
+							charInfo.Ear = append(charInfo.Ear, []string{"[내꺼]" + nameString, buffString, "0", qualityString})
 						} else if strings.Contains(nameString, "반지") {
-							ringStrings = append(ringStrings, []string{"[내꺼]" + nameString, buffString, "0", qualityString})
+							charInfo.Ring = append(charInfo.Ring, []string{"[내꺼]" + nameString, buffString, "0", qualityString})
 						}
 					}
 				}
 			}
-			return characterClass, [][][]string{
-				stoneStrings, neckStrings, earStrings, ringStrings,
-			}
+			return charInfo, nil
 		}
 	}
 }

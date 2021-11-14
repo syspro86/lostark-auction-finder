@@ -7,10 +7,8 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
-	"os/exec"
-	"os/user"
+	"os"
 	"runtime"
-	"syscall"
 
 	"github.com/gorilla/websocket"
 	"github.com/syspro86/lostark-auction-finder/pkg/loa"
@@ -30,165 +28,122 @@ func getWebDriver() selenium.WebDriver {
 //go:embed web
 var web embed.FS
 
-func main() {
-	toolConfig.Load("tool.json")
-
-	if toolConfig.SeleniumURL == "" {
-		toolConfig.SeleniumURL = "http://localhost:4444/wd/hub"
+func initWebServer(client *WebClient) chan bool {
+	type WSMessage struct {
+		Type string
+		Data Context
 	}
-	if toolConfig.ChromeUserDataPath == "" {
-		cmd := exec.Command("chromedriver.exe", "--port=4444", "--url-base=wd/hub", "--verbose")
-		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-		cmd.Start()
-		defer cmd.Process.Kill()
-
-		// service, err := selenium.NewChromeDriverService("chromedriver.exe", 4444)
-		// panicIfError(err)
-		// defer service.Stop()
-
-		user, err := user.Current()
-		panicIfError(err)
-		toolConfig.ChromeUserDataPath = fmt.Sprintf("%s\\AppData\\Local\\Google\\Chrome\\User Data\\", user.HomeDir)
+	upgrader := websocket.Upgrader{
+		ReadBufferSize:  1024 * 1024,
+		WriteBufferSize: 1024 * 1024,
 	}
+	startSearch := func(conn *websocket.Conn) {
+		defer conn.Close()
 
-	var ctx = Context{
-		CharacterName:      "",
-		LearnedBuffs:       map[string]int{},
-		SupposedStoneLevel: []int{6, 6, 3},
-		Grade:              "유물",
-		AuctionItemCount:   10,
-		TargetBuffs:        map[string]int{},
-		TargetQuality:      "전체 품질",
-		MaxDebuffLevel:     1,
-	}
-	ctx.Load(toolConfig.FileBase + "config.json")
+		writeFunction := func(msgtype string, message interface{}) {
+			data, _ := json.Marshal(map[string]interface{}{
+				"type": msgtype,
+				"data": message,
+			})
+			conn.WriteMessage(websocket.TextMessage, data)
+		}
+		writeFunction("const", loa.Const)
 
-	if runtime.GOOS == "windows" {
-		upgrader := websocket.Upgrader{
-			ReadBufferSize:  1024 * 1024,
-			WriteBufferSize: 1024 * 1024,
+		if runtime.GOOS == "windows" {
+			var ctx = Context{}
+			ctx.Load(toolConfig.FileBase + "config.json")
+			writeFunction("context", ctx)
+
+			client.Driver = getWebDriver()
+			defer client.Driver.Close()
 		}
 
-		startSearch := func(conn *websocket.Conn) {
+		for {
 			_, data, _ := conn.ReadMessage()
-			if err := json.Unmarshal(data, &ctx); err != nil {
+			msg := WSMessage{}
+			if err := json.Unmarshal(data, &msg); err != nil {
 				return
 			}
-			if ctx.CharacterName == "" {
-				return
-			}
-			ctx.Save(toolConfig.FileBase + "config.json")
-
-			writeFunction := func(msgtype string, message interface{}) {
-				data, _ := json.Marshal(map[string]interface{}{
-					"type": msgtype,
-					"data": message,
-				})
-				conn.WriteMessage(websocket.TextMessage, data)
-			}
-			writeFunction("log", fmt.Sprintf("캐릭터: %s", ctx.CharacterName))
-
-			driver := getWebDriver()
-			defer driver.Close()
-
-			if len(ctx.TargetTripods) > 0 {
-				job := TripodJob{
-					Web:       WebClient{Driver: driver},
-					LogWriter: writeFunction,
-					Ctx:       ctx,
+			if msg.Type == "character" {
+				ci, err := client.GetItemsFromCharacter(msg.Data.CharacterName)
+				printIfError(err)
+				if err == nil {
+					writeFunction("character", ci)
 				}
-				job.Start()
-			} else {
-				job := AccessoryJob{
-					Web:       WebClient{Driver: driver},
-					LogWriter: writeFunction,
-					Ctx:       ctx,
+			} else if msg.Type == "search" {
+				ctx := msg.Data
+				if ctx.CharacterName == "" {
+					return
 				}
-				job.Start()
+				if runtime.GOOS == "windows" {
+					ctx.Save(toolConfig.FileBase + "config.json")
+				}
+				writeFunction("log", fmt.Sprintf("캐릭터: %s", ctx.CharacterName))
+
+				if len(ctx.TargetTripods) > 0 {
+					job := TripodJob{
+						Web:       client,
+						LogWriter: writeFunction,
+						Ctx:       ctx,
+					}
+					job.Start()
+				} else {
+					job := AccessoryJob{
+						Web:       client,
+						LogWriter: writeFunction,
+						Ctx:       ctx,
+					}
+					job.Start()
+				}
 			}
 		}
-		webSub, _ := fs.Sub(web, "web")
-		http.Handle("/", http.FileServer(http.FS(webSub)))
-		http.HandleFunc("/loa/const", func(resp http.ResponseWriter, req *http.Request) {
-			resp.Header().Add("Content-Type", "application/json")
-			data, _ := json.Marshal(loa.Const)
-			resp.Write(data)
-		})
-		http.HandleFunc("/context", func(resp http.ResponseWriter, req *http.Request) {
-			resp.Header().Add("Content-Type", "application/json")
-			data, _ := json.Marshal(ctx)
-			resp.Write(data)
-		})
-		http.HandleFunc("/start", func(resp http.ResponseWriter, req *http.Request) {
-			conn, err := upgrader.Upgrade(resp, req, nil)
-			if err != nil {
-				log.Printf("upgrader.Upgrade: %v", err)
-				return
-			}
-			defer conn.Close()
+	}
+	webSub, _ := fs.Sub(web, "web")
+	if runtime.GOOS != "windows" {
+		webSub = os.DirFS("web")
+	}
+	http.Handle("/", http.FileServer(http.FS(webSub)))
+	http.HandleFunc("/ws", func(resp http.ResponseWriter, req *http.Request) {
+		conn, err := upgrader.Upgrade(resp, req, nil)
+		if err != nil {
+			log.Printf("upgrader.Upgrade: %v", err)
+			return
+		}
+		go startSearch(conn)
+	})
 
-			startSearch(conn)
-		})
-		// if err := exec.Command("rundll32", "url.dll,FileProtocolHandler", "http://localhost:5555/").Start(); err != nil {
-		// 	panic(err)
-		// }
+	httpStop := make(chan bool)
+	go func() {
+		http.ListenAndServe(":5555", nil)
+		httpStop <- true
+	}()
+	return httpStop
+}
 
-		httpStop := make(chan bool)
-		go func() {
-			http.ListenAndServe(":5555", nil)
-			httpStop <- true
-		}()
-
-		ui, err := lorca.New("http://localhost:5555", "", 480, 320)
+func initUI() (func(), <-chan struct{}) {
+	if runtime.GOOS == "windows" {
+		ui, err := lorca.New("http://localhost:5555", "", 1000, 800)
 		if err != nil {
 			log.Fatal(err)
 		}
-		defer ui.Close()
-
-		// ui.Load("http://localhost:5555")
-
-		select {
-		case <-ui.Done():
-		case <-httpStop:
-		}
-
-		// if err := http.ListenAndServe(":5555", nil); err != nil {
-		// 	panicIfError(err)
-		// }
-
-		// wv := webview.New(false)
-		// defer wv.Destroy()
-
-		// wv.SetTitle("LostArk Auction Finder")
-		// wv.SetSize(800, 600, webview.HintNone)
-		// wv.Navigate("http://localhost:5555/")
-		// wv.Run()
+		return func() { ui.Close() }, ui.Done()
 	} else {
-		log.Printf("캐릭터: %s\n", ctx.CharacterName)
-		if ctx.CharacterName == "" {
-			return
-		}
+		return func() {}, make(chan struct{})
+	}
+}
 
-		writeFunction := func(msgtype string, message interface{}) {
-			log.Println(message)
-		}
+func main() {
+	toolConfig.Load("tool.json")
 
-		driver := getWebDriver()
-		defer driver.Close()
-		if len(ctx.TargetTripods) > 0 {
-			job := TripodJob{
-				Web:       WebClient{Driver: driver},
-				LogWriter: writeFunction,
-				Ctx:       ctx,
-			}
-			job.Start()
-		} else {
-			job := AccessoryJob{
-				Web:       WebClient{Driver: driver},
-				LogWriter: writeFunction,
-				Ctx:       ctx,
-			}
-			job.Start()
-		}
+	wc := &WebClient{}
+	wc.InitSelenium()
+
+	httpStop := initWebServer(wc)
+	uiClose, uiStop := initUI()
+
+	defer uiClose()
+	select {
+	case <-uiStop:
+	case <-httpStop:
 	}
 }

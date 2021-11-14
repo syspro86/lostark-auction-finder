@@ -10,8 +10,8 @@ import (
 )
 
 type TripodJob struct {
-	Web       WebClient
-	LogWriter func(string, interface{})
+	Web       *WebClient
+	LogWriter WriteFunction
 	Ctx       Context
 }
 
@@ -43,7 +43,8 @@ func (job *TripodJob) searchTripod() [][]TripodItem {
 	steps := []string{"무기", "투구", "상의", "하의", "장갑", "어깨"}
 	categories := []string{"장비 - 무기", "장비 - 투구", "장비 - 상의", "장비 - 하의", "장비 - 장갑", "장비 - 어깨"}
 
-	characterClass, _ := job.Web.getItemsFromCharacter(job.Ctx.CharacterName)
+	charInfo, _ := job.Web.GetItemsFromCharacter(job.Ctx.CharacterName)
+	characterClass := charInfo.ClassName
 
 	for step := 0; step < len(steps); step++ {
 		dstItems := []*[]TripodItem{&weapons, &helmets, &bodys, &legs, &gloves, &shoulders}[step]
