@@ -48,7 +48,6 @@ func initWebServer(client *WebClient) chan bool {
 			conn.WriteMessage(websocket.TextMessage, data)
 		}
 		writeFunction("const", loa.Const)
-
 		if runtime.GOOS == "windows" {
 			var ctx = Context{}
 			ctx.Load(toolConfig.FileBase + "config.json")
@@ -137,6 +136,7 @@ func main() {
 
 	wc := &WebClient{}
 	wc.InitSelenium()
+	defer wc.Close()
 
 	httpStop := initWebServer(wc)
 	uiClose, uiStop := initUI()

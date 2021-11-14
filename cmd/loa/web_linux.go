@@ -1,5 +1,5 @@
 package main
 
-func (client *WebClient) InitChromeDriver() func() {
+func (client *WebClient) InitChromeDriver() CloseFunction {
 	return func() {}
 }

@@ -17,6 +17,7 @@ type WebClient struct {
 	UseSelenium bool
 	Driver      selenium.WebDriver
 	GUI         lorca.UI
+	Closers     []CloseFunction
 }
 
 type CharacterInfo struct {
@@ -37,7 +38,7 @@ func (err *WebClientLoadTimeout) Error() string {
 func (client *WebClient) InitSelenium() {
 	if toolConfig.SeleniumURL == "" {
 		closeChrome := client.InitChromeDriver()
-		defer closeChrome()
+		client.Closers = append(client.Closers, closeChrome)
 		toolConfig.SeleniumURL = "http://localhost:4444/wd/hub"
 	}
 	if toolConfig.ChromeUserDataPath == "" {
@@ -45,6 +46,13 @@ func (client *WebClient) InitSelenium() {
 		panicIfError(err)
 		toolConfig.ChromeUserDataPath = fmt.Sprintf("%s\\AppData\\Local\\Google\\Chrome\\User Data\\", user.HomeDir)
 	}
+}
+
+func (client *WebClient) Close() {
+	for _, cl := range client.Closers {
+		cl()
+	}
+	client.Closers = []CloseFunction{}
 }
 
 func (client *WebClient) GetItemsFromCharacter(characterName string) (CharacterInfo, error) {
