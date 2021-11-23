@@ -4,11 +4,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"os"
+	"runtime"
+	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/syspro86/lostark-auction-finder/pkg/loa"
 )
 
@@ -42,6 +46,21 @@ func (job *AccessoryJob) Start() {
 	}
 
 	allItemList := job.searchAccessory()
+	statPossibleAdd := make([]int, len(allItemList)+1)
+	for i, v := range []int{
+		loa.Const.MaxStats[job.Ctx.Grade]["반지"],
+		loa.Const.MaxStats[job.Ctx.Grade]["반지"],
+		loa.Const.MaxStats[job.Ctx.Grade]["귀걸이"],
+		loa.Const.MaxStats[job.Ctx.Grade]["귀걸이"],
+		loa.Const.MaxStats[job.Ctx.Grade]["목걸이"]} {
+		statPossibleAdd[len(statPossibleAdd)-i-2] = statPossibleAdd[len(statPossibleAdd)-i-1] + v
+	}
+	for i := range statPossibleAdd {
+		if statPossibleAdd[len(statPossibleAdd)-i-1] == 0 && i > 0 {
+			statPossibleAdd[len(statPossibleAdd)-i-1] = statPossibleAdd[len(statPossibleAdd)-i]
+		}
+	}
+	log.WithField("statPossibleMax", statPossibleAdd).Infoln("전투특성 추가치")
 
 	sumArray := func(srcs ...[]int) []int {
 		if len(srcs) == 0 {
@@ -65,220 +84,186 @@ func (job *AccessoryJob) Start() {
 		return debuffLevel
 	}
 
-	allTable := [][]string{}
-	resultHeader := []string{}
-	resultHeader = append(resultHeader, "세트 번호")
-	resultHeader = append(resultHeader, "부위 번호")
-	resultHeader = append(resultHeader, "총 골드")
-	resultHeader = append(resultHeader, "총 페온")
-	resultHeader = append(resultHeader, "전체 디버프")
-	for _, v := range job.Ctx.TargetStats {
-		resultHeader = append(resultHeader, fmt.Sprintf("총 %s", v))
+	type ItemCombSet struct {
+		step          int
+		curPrice      int
+		curPeon       int
+		curBuffs      []int
+		curStats      []int
+		curDebuffs    []int
+		itemIndexList []int
 	}
-	resultHeader = append(resultHeader, "부위 골드")
-	resultHeader = append(resultHeader, "부위 페온")
-	resultHeader = append(resultHeader, "아이템 이름")
-	resultHeader = append(resultHeader, job.TargetBuffNames...)
-	resultHeader = append(resultHeader, "퀄리티")
-	resultHeader = append(resultHeader, job.Ctx.TargetStats...)
-	resultHeader = append(resultHeader, "디버프")
-	job.LogWriter("resultHeader", resultHeader)
-	allTable = append(allTable, resultHeader)
-	// saveExcel := func() {
-	// 	file, err := os.OpenFile(toolConfig.FileBase+"result.xls", os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
-	// 	if err == nil {
-	// 		file.WriteString("<table>\n")
-	// 		for idx, tr := range allTable {
-	// 			if idx == 0 {
-	// 				file.WriteString("<tr>\n")
-	// 			} else if ((idx-1)/8)%2 == 0 {
-	// 				file.WriteString("<tr bgcolor='#80ff80'>\n")
-	// 			} else {
-	// 				file.WriteString("<tr bgcolor='#8080ff'>\n")
-	// 			}
-	// 			for _, td := range tr {
-	// 				file.WriteString("<td>")
-	// 				file.WriteString(td)
-	// 				file.WriteString("</td>\n")
-	// 			}
-	// 			file.WriteString("</tr>\n")
-	// 		}
-	// 		file.WriteString("</table>")
-	// 		file.Sync()
-	// 		file.Close()
-	// 	}
-	// }
 
-	minGold := 1_000_000
-	var checkItemSet func(step int, curPrice int, curPeon int, curBuffs []int, curStats []int, curDebuffs []int, itemIndexList []int)
-	checkItemSet = func(step int, curPrice int, curPeon int, curBuffs []int, curStats []int, curDebuffs []int, itemIndexList []int) {
-		remainStep := len(allItemList) - step
-		if remainStep == 0 {
-			if curPrice >= minGold {
-				return
-			}
-			minGold = curPrice
+	numCPU := runtime.NumCPU()
+	if job.Ctx.ThreadCount > 0 {
+		numCPU = job.Ctx.ThreadCount
+	}
+	args := make(chan ItemCombSet, numCPU+10)
+	wg := sync.WaitGroup{}
+	curJobCount := int32(0)
 
-			fill := func(str string, num int) string {
-				totalLen := 0
-				for _, v := range str {
-					if v >= 256 {
-						totalLen += 2
-					} else {
-						totalLen++
+	newStepArg := func(arg ItemCombSet) {
+		log.Traceln(arg)
+		args <- arg
+	}
+
+	targetStats := job.Ctx.TargetStats.ToInts()
+	minGold := map[int]int{}
+	minGoldLock := sync.RWMutex{}
+
+	getMinGold := func(level int) int {
+		minGoldLock.Lock()
+		defer minGoldLock.Unlock()
+		if v, ok := minGold[level]; ok {
+			return v
+		}
+		minGold[level] = 1_000_000
+		return minGold[level]
+	}
+
+	setMinGold := func(level int, value int) {
+		minGoldLock.Lock()
+		defer minGoldLock.Unlock()
+		for i := level; i <= job.Ctx.MaxDebuffLevel; i++ {
+			minGold[i] = value
+		}
+	}
+
+	reportResult := func(itemSet ItemCombSet) {
+		getDebuffDescAll := func(arr []int) string {
+			desc := ""
+			for i, v := range arr {
+				if v > 0 {
+					if v >= 5 {
+						desc += fmt.Sprintf("%s(%d) ", loa.Const.Debuffs[i], int(v/5))
 					}
 				}
-				for ; totalLen < num; totalLen++ {
-					str = " " + str
-				}
-				return str
 			}
+			return desc
+		}
 
-			getDebuffDescAll := func(arr []int) string {
-				desc := ""
-				for i, v := range arr {
-					if v > 0 {
-						if v >= 5 {
-							desc += fmt.Sprintf("%s(%d) ", loa.Const.Debuffs[i], int(v/5))
+		itemList := []AccessoryItem{}
+		for i, v := range itemSet.itemIndexList {
+			itemList = append(itemList, allItemList[i][v])
+		}
+		job.LogWriter("result", map[string]interface{}{
+			"price":     itemSet.curPrice,
+			"peon":      itemSet.curPeon,
+			"debuffs":   getDebuffDescAll(itemSet.curDebuffs),
+			"stats":     itemSet.curStats,
+			"buffNames": job.TargetBuffNames,
+			"statNames": job.Ctx.TargetStats.ToNames(),
+			"items":     itemList,
+		})
+	}
+
+	var checkItemSet func(itemSet ItemCombSet)
+	checkItemSet = func(itemSet ItemCombSet) {
+		remainStep := len(allItemList) - itemSet.step
+		for i, v := range targetStats {
+			if itemSet.curStats[i]+statPossibleAdd[itemSet.step] < v {
+				return
+			}
+		}
+		if remainStep == 0 {
+			debuffLevel := getDebuffLevel(itemSet.curDebuffs)
+			if itemSet.curPrice >= getMinGold(debuffLevel) {
+				return
+			}
+			setMinGold(debuffLevel, itemSet.curPrice)
+			reportResult(itemSet)
+		} else {
+			if itemSet.curPrice > getMinGold(job.Ctx.MaxDebuffLevel) {
+				return
+			}
+			for index, item := range allItemList[itemSet.step] {
+				if itemSet.curPrice+item.Price > getMinGold(job.Ctx.MaxDebuffLevel) {
+					continue
+				}
+				hasUniqueName := false
+				if item.UniqueName {
+					for step2, index2 := range itemSet.itemIndexList {
+						if allItemList[step2][index2].Name == item.Name {
+							hasUniqueName = true
+							break
 						}
 					}
 				}
-				return desc
-			}
-
-			statDescHeader := ""
-			for i, v := range job.Ctx.TargetStats {
-				statDescHeader += fmt.Sprintf("%s %d ", v, curStats[i])
-			}
-			buffHeader := ""
-			for _, v := range job.TargetBuffNames {
-				buffHeader += fmt.Sprintf("%s ", fill(v, 20))
-			}
-			statHeader := ""
-			for _, v := range job.Ctx.TargetStats {
-				statHeader += fmt.Sprintf("%s ", fill(v, 6))
-			}
-
-			itemList := []AccessoryItem{}
-			for i, v := range itemIndexList {
-				resultRow := []string{}
-				resultRow = append(resultRow, fmt.Sprintf("%d", (len(allTable)+len(itemIndexList)-1)/len(itemIndexList)))
-				resultRow = append(resultRow, fmt.Sprintf("%d", i+1))
-				resultRow = append(resultRow, fmt.Sprintf("%d", curPrice))
-				resultRow = append(resultRow, fmt.Sprintf("%d", curPeon))
-				resultRow = append(resultRow, getDebuffDescAll(curDebuffs))
-				for _, vv := range curStats {
-					resultRow = append(resultRow, fmt.Sprintf("%d", vv))
+				if hasUniqueName {
+					continue
 				}
-				resultRow = append(resultRow, fmt.Sprintf("%d", allItemList[i][v].Price))
-				resultRow = append(resultRow, fmt.Sprintf("%d", allItemList[i][v].Peon))
-				resultRow = append(resultRow, allItemList[i][v].Name)
-				for _, vv := range allItemList[i][v].Buffs {
-					resultRow = append(resultRow, fmt.Sprintf("%d", vv))
-				}
-				resultRow = append(resultRow, allItemList[i][v].Quality)
-				for _, vv := range allItemList[i][v].Stats {
-					resultRow = append(resultRow, fmt.Sprintf("%d", vv))
-				}
-				resultRow = append(resultRow, allItemList[i][v].DebuffDesc)
-				allTable = append(allTable, resultRow)
+				nextBuffs := sumArray(itemSet.curBuffs, item.Buffs)
 
-				itemList = append(itemList, allItemList[i][v])
-				// saveExcel()
-			}
-			job.LogWriter("result", map[string]interface{}{
-				"price":     curPrice,
-				"peon":      curPeon,
-				"debuffs":   getDebuffDescAll(curDebuffs),
-				"stats":     curStats,
-				"buffNames": job.TargetBuffNames,
-				"statNames": job.Ctx.TargetStats,
-				"items":     itemList,
-			})
-
-			msg := fmt.Sprintf("(골드) %d (페온) %d (디버프) %s (스탯 합) %s\n", curPrice, curPeon, getDebuffDescAll(curDebuffs), statDescHeader)
-			msg += fmt.Sprintf(" %s%s%s%s\n",
-				buffHeader,
-				fill("GOLD", 6),
-				statHeader,
-				fill("품질", 6))
-			for i, v := range itemIndexList {
-				buffStr := ""
-				for z := range job.TargetBuffNames {
-					buffStr += fmt.Sprintf("%20d ", allItemList[i][v].Buffs[z])
-				}
-				statStr := ""
-				for z := range job.Ctx.TargetStats {
-					statStr += fmt.Sprintf("%6d ", allItemList[i][v].Stats[z])
-				}
-				msg += fmt.Sprintf(" %s%6d%s%s (%s) %s\n",
-					buffStr,
-					allItemList[i][v].Price,
-					statStr,
-					fill(allItemList[i][v].Quality, 6),
-					fill(allItemList[i][v].DebuffDesc, 20),
-					allItemList[i][v].Name,
-				)
-			}
-			msg += "\n"
-			log.Println(msg)
-			// writeLog("log", msg)
-			// saveExcel()
-
-			return
-		}
-
-		for index, item := range allItemList[step] {
-			if curPrice+item.Price > minGold {
-				continue
-			}
-			hasUniqueName := false
-			if item.UniqueName {
-				for step2, index2 := range itemIndexList {
-					if allItemList[step2][index2].Name == item.Name {
-						hasUniqueName = true
-						break
+				getInsufficientPoint := func(arr []int) int {
+					pt := 0
+					for i, num := range arr {
+						if num < job.TargetLevels[i] {
+							pt += job.TargetLevels[i] - num
+						}
 					}
+					return pt
+				}
+
+				if itemSet.step >= 3 && getInsufficientPoint(nextBuffs) > loa.Const.MaxBuffPointPerGrade[job.Ctx.Grade]*(remainStep-1) {
+					continue
+				}
+				nextDebuffs := sumArray(itemSet.curDebuffs, item.Debuffs)
+				if getDebuffLevel(nextDebuffs) > job.Ctx.MaxDebuffLevel {
+					continue
+				}
+				nextStats := sumArray(itemSet.curStats, item.Stats)
+
+				newItemSet := ItemCombSet{
+					step:          itemSet.step + 1,
+					curPrice:      itemSet.curPrice + item.Price,
+					curPeon:       itemSet.curPeon + item.Peon,
+					curBuffs:      nextBuffs,
+					curStats:      nextStats,
+					curDebuffs:    nextDebuffs,
+					itemIndexList: append(itemSet.itemIndexList, index),
+				}
+				if curJobCount > int32(numCPU) {
+					checkItemSet(newItemSet)
+				} else {
+					atomic.AddInt32(&curJobCount, 1)
+					wg.Add(1)
+					newStepArg(newItemSet)
 				}
 			}
-			if hasUniqueName {
-				continue
-			}
-			nextBuffs := sumArray(curBuffs, item.Buffs)
-
-			getInsufficientPoint := func(arr []int) int {
-				pt := 0
-				for i, num := range arr {
-					if num < job.TargetLevels[i] {
-						pt += job.TargetLevels[i] - num
-					}
-				}
-				return pt
-			}
-
-			if step >= 3 && getInsufficientPoint(nextBuffs) > loa.Const.MaxBuffPointPerGrade[job.Ctx.Grade]*(remainStep-1) {
-				continue
-			}
-			nextDebuffs := sumArray(curDebuffs, item.Debuffs)
-			if getDebuffLevel(nextDebuffs) > job.Ctx.MaxDebuffLevel {
-				continue
-			}
-			nextStats := sumArray(curStats, item.Stats)
-
-			checkItemSet(step+1, curPrice+item.Price, curPeon+item.Peon, nextBuffs, nextStats, nextDebuffs, append(itemIndexList, index))
 		}
 	}
 
-	checkItemSet(0, 0, 0,
-		make([]int, len(job.TargetBuffNames)),
-		make([]int, len(job.Ctx.TargetStats)),
-		make([]int, len(loa.Const.Debuffs)),
-		make([]int, 0),
-	)
+	processItemSets := func(itemSets <-chan ItemCombSet) {
+		for itemSet := range itemSets {
+			checkItemSet(itemSet)
+			atomic.AddInt32(&curJobCount, -1)
+			wg.Done()
+		}
+	}
+
+	wg.Add(1)
+	newStepArg(ItemCombSet{
+		step:          0,
+		curPrice:      0,
+		curPeon:       0,
+		curBuffs:      make([]int, len(job.TargetBuffNames)),
+		curStats:      make([]int, len(job.Ctx.TargetStats.ToInts())),
+		curDebuffs:    make([]int, len(loa.Const.Debuffs)),
+		itemIndexList: make([]int, 0),
+	})
+
+	log.Infoln("item comb started")
+	for i := 0; i < numCPU; i++ {
+		go processItemSets(args)
+	}
+	wg.Wait()
+	log.Infoln("item comb finished")
+	close(args)
 	job.LogWriter("end", "")
 }
 
 func (job *AccessoryJob) searchAccessory() [][]AccessoryItem {
+	log.Info("start searchAccessory")
 	stoneItems := make([]AccessoryItem, 0)
 	neckItems := make([]AccessoryItem, 0)
 	earItems := make([]AccessoryItem, 0)
@@ -286,12 +271,21 @@ func (job *AccessoryJob) searchAccessory() [][]AccessoryItem {
 
 	steps := []string{"어빌리티 스톤", "목걸이", "귀걸이", "반지"}
 	categories := []string{"어빌리티 스톤 - 전체", "장신구 - 목걸이", "장신구 - 귀걸이", "장신구 - 반지"}
-	qualities := []string{"전체 품질", job.Ctx.TargetQuality, job.Ctx.TargetQuality, job.Ctx.TargetQuality}
+	qualities := []string{"전체 품질", job.Ctx.TargetQualityNeck, job.Ctx.TargetQuality, job.Ctx.TargetQuality}
 
 	charInfo, _ := job.Web.GetItemsFromCharacter(job.Ctx.CharacterName)
 	characterClass := charInfo.ClassName
 	characterItems := [][][]string{charInfo.Stone, charInfo.Neck, charInfo.Ear, charInfo.Ring}
 	job.Ctx.Grade = loa.Const.Grades[1]
+
+	statNames := []string{}
+	for i, v := range job.Ctx.TargetStats.ToInts() {
+		if v > 0 {
+			statNames = append(statNames, job.Ctx.TargetStats.ToNames()[i])
+		}
+	}
+
+	logStatNames := log.WithField("statNames", statNames)
 
 	for step := range steps {
 		dstItems := []*[]AccessoryItem{&stoneItems, &neckItems, &earItems, &ringItems}[step]
@@ -303,7 +297,7 @@ func (job *AccessoryJob) searchAccessory() [][]AccessoryItem {
 			for _, item := range searchResult {
 				part := strings.Split(item[1], ";")
 				eachBuff := make([]int, len(job.TargetBuffNames))
-				eachStat := make([]int, len(job.Ctx.TargetStats))
+				eachStat := make([]int, len(job.Ctx.TargetStats.ToInts()))
 				eachDebuff := make([]int, len(loa.Const.Debuffs))
 				eachQuality := ""
 				if len(item) >= 4 {
@@ -322,7 +316,7 @@ func (job *AccessoryJob) searchAccessory() [][]AccessoryItem {
 					if i := arrayIndexOf(job.TargetBuffNames, rname); i >= 0 {
 						eachBuff[i] = rlevel
 					}
-					if i := arrayIndexOf(job.Ctx.TargetStats, rname); i >= 0 {
+					if i := arrayIndexOf(job.Ctx.TargetStats.ToNames(), rname); i >= 0 {
 						eachStat[i] = rlevel
 					}
 					if i := arrayIndexOf(loa.Const.Debuffs, rname); i >= 0 {
@@ -368,25 +362,39 @@ func (job *AccessoryJob) searchAccessory() [][]AccessoryItem {
 				}
 				switch step {
 				case 0:
+					logStatNames.Traceln("step 0")
 					addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[i], job.TargetBuffNames[j], "", "", ""), true)
 				case 1:
-					addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[i], job.TargetBuffNames[j], job.Ctx.TargetStats[0], job.Ctx.TargetStats[1], qualities[step]), true)
-					addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[i], "", job.Ctx.TargetStats[0], job.Ctx.TargetStats[1], qualities[step]), true)
-					addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[j], "", job.Ctx.TargetStats[0], job.Ctx.TargetStats[1], qualities[step]), true)
+					logStatNames.Traceln("step 1")
+					for k, statName1 := range statNames {
+						for l, statName2 := range statNames {
+							if k >= l {
+								continue
+							}
+							addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[i], job.TargetBuffNames[j], statName1, statName2, qualities[step]), true)
+							addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[i], "", statName1, statName2, qualities[step]), true)
+							addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[j], "", statName1, statName2, qualities[step]), true)
+						}
+					}
 				case 2:
+					logStatNames.Traceln("step 2")
 					fallthrough
 				case 3:
-					addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[i], job.TargetBuffNames[j], job.Ctx.TargetStats[0], "", qualities[step]), true)
-					addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[i], "", job.Ctx.TargetStats[0], "", qualities[step]), true)
-					addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[j], "", job.Ctx.TargetStats[0], "", qualities[step]), true)
-					if !job.Ctx.OnlyFirstStat {
-						addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[i], job.TargetBuffNames[j], job.Ctx.TargetStats[1], "", qualities[step]), true)
-						addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[i], "", job.Ctx.TargetStats[1], "", qualities[step]), true)
-						addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[j], "", job.Ctx.TargetStats[1], "", qualities[step]), true)
+					logStatNames.Traceln("step 3")
+					for _, statName := range statNames {
+						addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[i], job.TargetBuffNames[j], statName, "", qualities[step]), true)
+						addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[i], "", statName, "", qualities[step]), true)
+						addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[j], "", statName, "", qualities[step]), true)
 					}
 				}
 			}
 		}
+		sort.Slice(*dstItems, func(i, j int) bool {
+			item1 := (*dstItems)[i]
+			item2 := (*dstItems)[j]
+			return item1.Peon < item2.Peon ||
+				(item1.Peon == item2.Peon && item1.Price < item2.Price)
+		})
 	}
 	job.LogWriter("log", "수집 종료")
 
@@ -399,12 +407,18 @@ func (job *AccessoryJob) searchAccessory() [][]AccessoryItem {
 			bookBuffItems = append(bookBuffItems, AccessoryItem{
 				Name:    "[각인]" + name,
 				Buffs:   buffs,
-				Stats:   make([]int, len(job.Ctx.TargetStats)),
+				Stats:   make([]int, len(job.Ctx.TargetStats.ToInts())),
 				Debuffs: make([]int, len(loa.Const.Debuffs)),
 				Price:   0,
 			})
 		}
 	}
+
+	log.Infof("각인 개수: %d", len(bookBuffItems))
+	log.Infof("어빌리티 스톤 개수: %d", len(stoneItems))
+	log.Infof("목걸이 개수: %d", len(neckItems))
+	log.Infof("귀걸이 개수: %d", len(earItems))
+	log.Infof("반지 개수: %d", len(ringItems))
 
 	return [][]AccessoryItem{
 		bookBuffItems, bookBuffItems, stoneItems, neckItems, earItems, earItems, ringItems, ringItems,
@@ -428,7 +442,7 @@ func (job *AccessoryJob) readOrSearchItem(category string, characterClass string
 	// 캐시 데이터가 한시간 이상 지났으면 삭제
 	if stat, err := os.Stat(toolConfig.CachePath + fileName); err == nil {
 		if stat.ModTime().Add(time.Hour * 24).Before(time.Now()) {
-			//os.Remove(toolConfig.FileBase + fileName)
+			os.Remove(toolConfig.FileBase + fileName)
 		}
 	}
 
@@ -436,6 +450,8 @@ func (job *AccessoryJob) readOrSearchItem(category string, characterClass string
 		tmp := new([][]string)
 		json.Unmarshal(data, tmp)
 		return *tmp
+	} else if runtime.GOOS != "windows" {
+		return [][]string{}
 	} else {
 		job.Web.loginStove()
 		job.Web.openAuction()

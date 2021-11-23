@@ -6,8 +6,10 @@ type GameConst struct {
 	Debuffs              []string
 	MaxBuffPointPerGrade map[string]int
 	Peons                map[string]map[string]int
+	MaxStats             map[string]map[string]int
 	Grades               []string
 	Tier                 string
+	Qualities            []string
 }
 
 var Const = GameConst{
@@ -47,6 +49,15 @@ var Const = GameConst{
 		"유물": {"어빌리티 스톤": 9, "목걸이": 25, "귀걸이": 25, "반지": 35},
 		"고대": {"어빌리티 스톤": 0, "목걸이": 35, "귀걸이": 25, "반지": 35},
 	},
+	MaxStats: map[string]map[string]int{
+		"전설": {"목걸이": 450, "귀걸이": 270, "반지": 180},
+		"유물": {"목걸이": 500, "귀걸이": 300, "반지": 200},
+		"고대": {"목걸이": 500, "귀걸이": 300, "반지": 200},
+	},
 	Grades: []string{"전설", "유물", "고대"},
 	Tier:   "티어 3",
+	Qualities: []string{
+		"전체 품질", "90 이상", "80 이상", "70 이상", "60 이상",
+		"50 이상", "40 이상", "30 이상", "20 이상", "10 이상",
+	},
 }

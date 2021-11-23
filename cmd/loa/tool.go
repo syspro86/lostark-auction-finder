@@ -12,6 +12,7 @@ type ToolConfig struct {
 	ChromeUserDataPath string
 	CacheSearchResult  bool
 	CachePath          string
+	LogLevel           string
 }
 
 var toolConfig = ToolConfig{
@@ -30,6 +31,21 @@ func (cfg *ToolConfig) Load(fileName string) {
 	}
 }
 
+// 전투 특성
+type BattleStat struct {
+	Critical int
+	Haste    int
+	Mastery  int
+}
+
+func (bs *BattleStat) ToNames() []string {
+	return []string{"치명", "신속", "특화"}
+}
+
+func (bs *BattleStat) ToInts() []int {
+	return []int{bs.Critical, bs.Haste, bs.Mastery}
+}
+
 type Context struct {
 	// 조건 관련
 	CharacterName      string
@@ -38,13 +54,16 @@ type Context struct {
 	Grade              string
 	AuctionItemCount   int // 옵션별 최소 몇개 경매품 검색할 지
 	// 목표 관련
-	TargetBuffs    map[string]int
-	TargetStats    []string // 2차 스탯
-	TargetQuality  string   // "전체 품질", 10 이상, 90 이상
-	OnlyFirstStat  bool
-	MaxDebuffLevel int
+	TargetBuffs       map[string]int
+	TargetStats       BattleStat
+	TargetQuality     string // "전체 품질", 10 이상, 90 이상
+	TargetQualityNeck string // "전체 품질", 10 이상, 90 이상
+	MaxDebuffLevel    int
 
 	TargetTripods [][]string
+
+	// 작업 관련
+	ThreadCount int
 }
 
 func (ctx *Context) Load(fileName string) {
@@ -52,7 +71,6 @@ func (ctx *Context) Load(fileName string) {
 		tmp := Context{}
 		if err := json.Unmarshal(data, &tmp); err == nil {
 			*ctx = tmp
-			ctx.OnlyFirstStat = true
 		} else {
 			log.Println(err)
 		}

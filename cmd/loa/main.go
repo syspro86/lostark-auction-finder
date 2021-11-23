@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
-	"log"
 	"net/http"
 	"os"
 	"runtime"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/gorilla/websocket"
 	"github.com/syspro86/lostark-auction-finder/pkg/loa"
@@ -59,10 +60,12 @@ func initWebServer(client *WebClient) chan bool {
 
 		for {
 			_, data, _ := conn.ReadMessage()
+			log.Trace("New message from user")
 			msg := WSMessage{}
 			if err := json.Unmarshal(data, &msg); err != nil {
 				return
 			}
+			log.Trace(msg)
 			if msg.Type == "character" {
 				ci, err := client.GetItemsFromCharacter(msg.Data.CharacterName)
 				printIfError(err)
@@ -133,6 +136,11 @@ func initUI() (func(), <-chan struct{}) {
 
 func main() {
 	toolConfig.Load("tool.json")
+	if level, err := log.ParseLevel(toolConfig.LogLevel); err == nil {
+		log.SetLevel(level)
+	} else {
+		log.SetLevel(log.InfoLevel)
+	}
 
 	wc := &WebClient{}
 	wc.InitSelenium()

@@ -10,19 +10,53 @@
 
 <body ng-app="MyApp" ng-controller="MyController" ng-cloak>
     <md-content layout="column" style="height: 100%; overflow: hidden;" layout-padding>
-        <md-tabs style="max-width: 1000px;" flex>
+        <md-tabs flex>
             <md-tab label="캐릭터">
                 <md-content class="md-padding" layout="column">
                     <div layout="column">
                         <div layout="row">
-                            <md-input-container flex="60">
+                            <md-input-container flex="40">
                                 <label>캐릭터명</label>
                                 <input type="text" ng-model="context.CharacterName" name="characterName" ng-keypress="characterName_keydown($event)">
                             </md-input-container>
-                            <md-input-container flex="40">
+                            <md-input-container flex="30">
                                 <label>아이템 등급</label>
                                 <md-select ng-model="context.Grade" >
                                     <md-option ng-repeat="x in loa.Const.Grades track by $index" ng-value="x">{{ x }}</md-option>
+                                </md-select>
+                            </md-input-container>
+                            <md-input-container flex="30">
+                                <label>아이템 품질</label>
+                                <md-select ng-model="context.TargetQuality" >
+                                    <md-option ng-repeat="x in loa.Const.Qualities track by $index" ng-value="x">{{ x }}</md-option>
+                                </md-select>
+                            </md-input-container>
+                            <md-input-container flex="30">
+                                <label>목걸이 품질</label>
+                                <md-select ng-model="context.TargetQualityNeck" >
+                                    <md-option ng-repeat="x in loa.Const.Qualities track by $index" ng-value="x">{{ x }}</md-option>
+                                </md-select>
+                            </md-input-container>
+                        </div>
+                        <div layout="row">
+                            <md-input-container flex>
+                                <label>치명</label>
+                                <input type="number" ng-model="context.TargetStats.Critical">
+                            </md-input-container>
+                            <md-input-container flex>
+                                <label>가속</label>
+                                <input type="number" ng-model="context.TargetStats.Haste">
+                            </md-input-container>
+                            <md-input-container flex>
+                                <label>특화</label>
+                                <input type="number" ng-model="context.TargetStats.Mastery">
+                            </md-input-container>
+                        </div>
+                        <div layout="row">
+                            <md-input-container flex>
+                                <label>CPU활용</label>
+                                <md-select ng-model="context.ThreadCount" >
+                                    <md-option ng-repeat="x in threadList track by $index" ng-value="x">{{ x }}</md-option>
                                 </md-select>
                             </md-input-container>
                         </div>
@@ -126,6 +160,19 @@
                     </md-list>
                 </md-content>
             </md-tab>
+            <md-tab label="로그">
+                <md-content class="md-padding" layout="column" style="height: 100%; overflow: hidden;">
+                    <md-list flex style="overflow: auto">
+                        <md-list-item class="md-1-line" ng-repeat="data in logs track by $index" layout="row">
+                            <md-content flex layout="column">
+                                <span>
+                                    {{ data }}
+                                </span>
+                            </md-content>
+                        </md-list-item>
+                    </md-list>
+                </md-content>
+            </md-tab>
         </md-tabs>
     </md-content>
 
@@ -140,7 +187,6 @@
         var app = angular.module('MyApp', ['ngMaterial']);
         app.controller('MyController', MyController);
         function MyController($scope, $http, $timeout, $mdToast, $mdDialog) {
-            $scope.resultHeader = []
             $scope.result = []
             $scope.loa = {
                 'Const': {},
@@ -156,10 +202,13 @@
                 "TargetQuality": "80 이상",
                 "OnlyFirstStat": true,
                 "MaxDebuffLevel": 1,
+                "ThreadCount": 0,
             }
             $scope.autocompleteBuffs = []
             $scope.autocompleteBuffsT = []
             $scope.searchRunning = false
+            $scope.logs = []
+            $scope.threadList = [0, 1, 2, 3, 4, 8]
 
             if (localStorage.getItem("context")) {
                 $scope.context = JSON.parse(localStorage.getItem("context"))
@@ -228,6 +277,7 @@
                         console.log(data.data)
                         var toast = $mdToast.simple().textContent(data.data).hideDelay(3000)
                         $mdToast.show(toast)
+                        $scope.logs.push(data.data)
                     } else if (data.type == "const") {
                         $scope.$apply(function() {
                             $scope.loa.Const = data.data
@@ -271,9 +321,6 @@
                         $scope.$apply(function() {
                             $scope.character = data.data
                         })
-                    } else if (data.type == "resultHeader") {
-                        $scope.resultHeader = data.data
-                        $scope.result = []
                     } else if (data.type == "result") {
                         data.data.show = false
                         data.data.toggle = function() {
@@ -317,6 +364,8 @@
                 if ($scope.ws == null) {
                     $scope.ws = connectWS()
                 }
+                $scope.logs = []
+                $scope.result = []
                 $scope.searchRunning = true
                 $scope.ws.send(JSON.stringify({
                     "type": "search",
