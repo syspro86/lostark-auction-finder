@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"sync"
 
 	log "github.com/sirupsen/logrus"
 
@@ -41,11 +42,14 @@ func initWebServer(client *WebClient) chan bool {
 	startSearch := func(conn *websocket.Conn) {
 		defer conn.Close()
 
+		writeLock := sync.RWMutex{}
 		writeFunction := func(msgtype string, message interface{}) {
 			data, _ := json.Marshal(map[string]interface{}{
 				"type": msgtype,
 				"data": message,
 			})
+			writeLock.Lock()
+			defer writeLock.Unlock()
 			conn.WriteMessage(websocket.TextMessage, data)
 		}
 		writeFunction("const", loa.Const)

@@ -51,6 +51,7 @@ type Context struct {
 	CharacterName      string
 	LearnedBuffs       map[string]int // 이미 배운 각인
 	SupposedStoneLevel []int          // 어빌스톤 예상 단계
+	SearchAbilityStone bool
 	Grade              string
 	AuctionItemCount   int // 옵션별 최소 몇개 경매품 검색할 지
 	// 목표 관련

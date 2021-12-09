@@ -51,6 +51,12 @@
                                 <label>특화</label>
                                 <input type="number" ng-model="context.TargetStats.Mastery">
                             </md-input-container>
+                            <md-input-container flex="30">
+                                <label>어빌리티 스톤 검색</label>
+                                <md-select ng-model="context.SearchAbilityStone" >
+                                    <md-option ng-repeat="x in [true, false] track by $index" ng-value="x">{{ (x?'거래소 검색':'내 돌만 재사용') }}</md-option>
+                                </md-select>
+                            </md-input-container>
                         </div>
                         <div layout="row">
                             <md-input-container flex>
@@ -327,7 +333,34 @@
                             this.show = !this.show
                         }
                         $scope.$apply(function() {
-                            $scope.result.push(data.data)
+                            foundSame = false
+                            insertIndex = $scope.result.findIndex(function(elem, index, array) {
+                                stats1 = elem.stats.reduce(function(a, b) { return a + b })
+                                stats2 = data.data.stats.reduce(function(a, b) { return a + b })
+                                if (stats1 == stats2 && elem.price == data.data.price && elem.peon == data.data.peon) {
+                                    foundSame = true
+                                }
+                                if (stats1 < stats2) {
+                                    return true
+                                }
+                                if (stats1 > stats2) {
+                                    return false
+                                }
+                                if (elem.price < data.data.price) {
+                                    return false
+                                }
+                                if (elem.peon < data.data.peon) {
+                                    return false
+                                }
+                                return true
+                            })
+                            if (foundSame) {
+                                return
+                            }
+                            if (insertIndex == -1) {
+                                insertIndex = 0
+                            }
+                            $scope.result.splice(insertIndex, 0, data.data)
                         })
                     } else if (data.type == "end") {
                         $scope.searchRunning = false

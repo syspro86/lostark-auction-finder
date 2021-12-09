@@ -45,7 +45,7 @@ func (job *AccessoryJob) Start() {
 		job.TargetLevels = append(job.TargetLevels, level*5)
 	}
 
-	allItemList := job.searchAccessory()
+	allItemList, comparingIndex := job.searchAccessory()
 	statPossibleAdd := make([]int, len(allItemList)+1)
 	for i, v := range []int{
 		loa.Const.MaxStats[job.Ctx.Grade]["반지"],
@@ -167,19 +167,25 @@ func (job *AccessoryJob) Start() {
 		}
 		if remainStep == 0 {
 			debuffLevel := getDebuffLevel(itemSet.curDebuffs)
-			if itemSet.curPrice >= getMinGold(debuffLevel) {
-				return
-			}
+			// if itemSet.curPrice >= getMinGold(debuffLevel) {
+			// return
+			// }
 			setMinGold(debuffLevel, itemSet.curPrice)
 			reportResult(itemSet)
+			log.WithField("itemSet", itemSet).Info("New Item Set")
 		} else {
 			if itemSet.curPrice > getMinGold(job.Ctx.MaxDebuffLevel) {
 				return
 			}
 			for index, item := range allItemList[itemSet.step] {
-				if itemSet.curPrice+item.Price > getMinGold(job.Ctx.MaxDebuffLevel) {
-					continue
+				if comparingIndex[itemSet.step] {
+					if index < itemSet.itemIndexList[itemSet.step-1] {
+						continue
+					}
 				}
+				// if itemSet.curPrice+item.Price > getMinGold(job.Ctx.MaxDebuffLevel) {
+				// continue
+				// }
 				hasUniqueName := false
 				if item.UniqueName {
 					for step2, index2 := range itemSet.itemIndexList {
@@ -222,7 +228,7 @@ func (job *AccessoryJob) Start() {
 					curDebuffs:    nextDebuffs,
 					itemIndexList: append(itemSet.itemIndexList, index),
 				}
-				if curJobCount > int32(numCPU) {
+				if curJobCount > int32(numCPU) && itemSet.step >= 2 {
 					checkItemSet(newItemSet)
 				} else {
 					atomic.AddInt32(&curJobCount, 1)
@@ -262,7 +268,7 @@ func (job *AccessoryJob) Start() {
 	job.LogWriter("end", "")
 }
 
-func (job *AccessoryJob) searchAccessory() [][]AccessoryItem {
+func (job *AccessoryJob) searchAccessory() ([][]AccessoryItem, []bool) {
 	log.Info("start searchAccessory")
 	stoneItems := make([]AccessoryItem, 0)
 	neckItems := make([]AccessoryItem, 0)
@@ -350,6 +356,11 @@ func (job *AccessoryJob) searchAccessory() [][]AccessoryItem {
 		}
 		addToItems(characterItems[step], false)
 
+		// 내돌만 사용 옵션
+		if step == 0 && !job.Ctx.SearchAbilityStone {
+			continue
+		}
+
 		for i := 0; i < len(job.TargetBuffNames); i++ {
 			for j := i + 1; j < len(job.TargetBuffNames); j++ {
 				if step == 0 {
@@ -421,8 +432,10 @@ func (job *AccessoryJob) searchAccessory() [][]AccessoryItem {
 	log.Infof("반지 개수: %d", len(ringItems))
 
 	return [][]AccessoryItem{
-		bookBuffItems, bookBuffItems, stoneItems, neckItems, earItems, earItems, ringItems, ringItems,
-	}
+			bookBuffItems, bookBuffItems, stoneItems, neckItems, earItems, earItems, ringItems, ringItems,
+		}, []bool{
+			false, true, false, false, false, true, false, true,
+		}
 }
 
 func (job *AccessoryJob) readOrSearchItem(category string, characterClass string, stepName string, grade string, buff1 string, buff2 string, stat1 string, stat2 string, quality string) [][]string {
