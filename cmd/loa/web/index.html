@@ -332,36 +332,40 @@
                         data.data.toggle = function() {
                             this.show = !this.show
                         }
-                        $scope.$apply(function() {
-                            foundSame = false
-                            insertIndex = $scope.result.findIndex(function(elem, index, array) {
-                                stats1 = elem.stats.reduce(function(a, b) { return a + b })
-                                stats2 = data.data.stats.reduce(function(a, b) { return a + b })
-                                if (stats1 == stats2 && elem.price == data.data.price && elem.peon == data.data.peon) {
-                                    foundSame = true
-                                }
-                                if (stats1 < stats2) {
-                                    return true
-                                }
-                                if (stats1 > stats2) {
-                                    return false
-                                }
-                                if (elem.price < data.data.price) {
-                                    return false
-                                }
-                                if (elem.peon < data.data.peon) {
-                                    return false
-                                }
+                        data.data.statSum = data.data.stats.reduce(function(a, b) { return a + b })
+                        foundSame = false
+                        insertIndex = $scope.result.findIndex(function(elem) {
+                            if (elem.statSum == data.data.statSum && elem.price == data.data.price && elem.peon == data.data.peon) {
+                                foundSame = true
+                            }
+                            if (elem.peon < data.data.peon) {
+                                return false
+                            } else if (elem.peon > data.data.peon) {
                                 return true
-                            })
-                            if (foundSame) {
-                                return
                             }
-                            if (insertIndex == -1) {
-                                insertIndex = 0
+                            if (elem.price < data.data.price) {
+                                return false
+                            } else if (elem.price > data.data.price) {
+                                return true
                             }
-                            $scope.result.splice(insertIndex, 0, data.data)
+                            if (elem.statSum < data.data.statSum) {
+                                return true
+                            } else if (elem.statSum > data.data.statSum) {
+                                return false
+                            }
+                            return true
                         })
+                        if (!foundSame) {
+                            if (insertIndex == -1) {
+                                insertIndex = $scope.result.length
+                            }
+                            $scope.$apply(function() {
+                                $scope.result.splice(insertIndex, 0, data.data)
+                                if ($scope.result.length > 100) {
+                                    $scope.result = $scope.result.slice(0, 100)
+                                }
+                            })
+                        }
                     } else if (data.type == "end") {
                         $scope.searchRunning = false
                     }
