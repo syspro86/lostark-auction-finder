@@ -376,21 +376,41 @@ func (client *WebClient) searchAndGetResults(itemCount int) ([][]string, bool) {
 	page := 1
 	retList := make([][]string, 0)
 	for {
+		// 조회 창이 닫힌 것 확인
 		time.Sleep(500 * time.Millisecond)
-		// sleepShortly()
+		for {
+			sleepShortly()
 
-		// empty, err := client.Driver.FindElement(selenium.ByCSSSelector, "#auctionListTbody .empty")
-		// if err == nil || empty != nil {
-		// 	emptyText, _ := empty.GetAttribute("innerText")
-		// 	if strings.Trim(emptyText, " ") == "경매장 연속 검색으로 인해 검색 이용이 최대 5분간 제한되었습니다." {
-		// 		log.Println("이용 제한으로 5분 대기")
-		// 		time.Sleep(5 * time.Minute)
-		// 		client.Driver.ExecuteScript(fmt.Sprintf("paging.page(%d);", page), nil)
-		// 		continue
-		// 	}
-		// 	return retList, false
-		// }
+			success, err := client.Driver.ExecuteScript(`
+				// 에러창이 있으면 확인 클릭 후 재조회
+				var confirmButton = document.querySelectorAll(".lui-modal__confirm");
+				if (confirmButton.length >= 5) {
+					confirmButton[4].click();
+					return "search";
+				}
+				var modalSearch = document.querySelectorAll(".lui-modal__search");
+				if (modalSearch.length == 0) {
+					return "true";
+				}
+				return "false";
+			`, nil)
+			panicIfError(err)
 
+			if success == "false" {
+				continue
+			} else if success == "search" {
+				time.Sleep(500 * time.Millisecond)
+				search, err := client.Driver.FindElement(selenium.ByCSSSelector, ".lui-modal__search")
+				if err != nil || search == nil {
+					continue
+				}
+				search.Click()
+				continue
+			}
+			break
+		}
+
+		time.Sleep(500 * time.Millisecond)
 		for {
 			sleepShortly()
 
@@ -440,6 +460,23 @@ func (client *WebClient) searchAndGetResults(itemCount int) ([][]string, bool) {
 				}
 				break
 			}
+			for {
+				sleepShortly()
+
+				success, err := client.Driver.ExecuteScript(`
+					var loader = document.querySelectorAll(".lui-loader");
+					if (loader.length == 0) {
+						return "true";
+					}
+					return "false";
+				`, nil)
+				panicIfError(err)
+
+				if success == "false" {
+					continue
+				}
+				break
+			}
 		}
 
 		auctionList, err := client.Driver.FindElement(selenium.ByCSSSelector, "#auctionListTbody")
@@ -457,14 +494,26 @@ func (client *WebClient) searchAndGetResults(itemCount int) ([][]string, bool) {
 				var effect = tr.getElementsByClassName('effect')[0].innerText;
 				var price = tr.getElementsByClassName('price-buy')[0].innerText;
 				var quality = '';
+				var remainTime = '';
+				var productId = '';
 				if (tr.getElementsByClassName('quality').length > 0) {
 					quality = tr.getElementsByClassName('quality')[0].innerText;
 					quality = quality.trim();
+				}
+				if (tr.getElementsByClassName('time').length > 0) {
+					remainTime = tr.getElementsByClassName('time')[0].innerText;
+					remainTime = remainTime.trim();
+				}
+				if (tr.getElementsByClassName('button--deal-buy').length > 0) {
+					productId = tr.getElementsByClassName('button--deal-buy')[0].getAttribute('data-productid');
+					productId = productId.trim();
 				}
 				effect = effect.replaceAll("\n", ';');
 				price = price.replaceAll(',', '').trim();
 				ss += name + ',' + effect + ',' + price;
 				ss += ',' + quality;
+				ss += ',' + remainTime;
+				ss += ',' + productId;
 				ss += "\n";
 			}
 			return ss;
@@ -477,7 +526,7 @@ func (client *WebClient) searchAndGetResults(itemCount int) ([][]string, bool) {
 
 		for _, line := range lines {
 			part := strings.Split(line, ",")
-			if len(part) < 3 {
+			if len(part) < 5 {
 				continue
 			}
 			if strings.Trim(part[2], " ") != "-" {
