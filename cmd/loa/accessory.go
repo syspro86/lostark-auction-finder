@@ -1,10 +1,7 @@
 package main
 
 import (
-	"encoding/json"
-	"errors"
 	"fmt"
-	"os"
 	"runtime"
 	"sort"
 	"strings"
@@ -111,24 +108,27 @@ func (job *AccessoryJob) Start() {
 	}
 
 	targetStats := job.Ctx.TargetStats.ToInts()
-	minGold := map[int]int{}
+	minGold := map[int][]int{}
 	minGoldLock := sync.RWMutex{}
 
 	getMinGold := func(level int) int {
 		minGoldLock.Lock()
 		defer minGoldLock.Unlock()
 		if v, ok := minGold[level]; ok {
-			return v
+			return v[len(v)-1]
 		}
-		minGold[level] = 1_000_000
-		return minGold[level]
+		minGold[level] = []int{1_000_000}
+		return minGold[level][0]
 	}
 
 	setMinGold := func(level int, value int) {
 		minGoldLock.Lock()
 		defer minGoldLock.Unlock()
 		for i := level; i <= job.Ctx.MaxDebuffLevel; i++ {
-			minGold[i] = value
+			minGold[i] = append(minGold[i], value)
+			if len(minGold[i]) > 100 {
+				minGold[i] = minGold[i][0:100]
+			}
 		}
 	}
 
@@ -170,9 +170,9 @@ func (job *AccessoryJob) Start() {
 		}
 		if remainStep == 0 {
 			debuffLevel := getDebuffLevel(itemSet.curDebuffs)
-			// if itemSet.curPrice >= getMinGold(debuffLevel) {
-			// return
-			// }
+			if itemSet.curPrice >= getMinGold(debuffLevel) {
+				return
+			}
 			setMinGold(debuffLevel, itemSet.curPrice)
 			reportResult(itemSet)
 			log.WithField("itemSet", itemSet).Info("New Item Set")
@@ -186,9 +186,9 @@ func (job *AccessoryJob) Start() {
 						continue
 					}
 				}
-				// if itemSet.curPrice+item.Price > getMinGold(job.Ctx.MaxDebuffLevel) {
-				// continue
-				// }
+				if itemSet.curPrice+item.Price > getMinGold(job.Ctx.MaxDebuffLevel) {
+					continue
+				}
 				hasUniqueName := false
 				if item.UniqueName {
 					for step2, index2 := range itemSet.itemIndexList {
@@ -203,7 +203,18 @@ func (job *AccessoryJob) Start() {
 				}
 				nextBuffs := sumArray(itemSet.curBuffs, item.Buffs)
 
-				getInsufficientPoint := func(arr []int) int {
+				getMaxInsufficientPoint := func(arr []int) int {
+					pt := 0
+					for i, num := range arr {
+						if num < job.TargetLevels[i] {
+							if pt < job.TargetLevels[i]-num {
+								pt = job.TargetLevels[i] - num
+							}
+						}
+					}
+					return pt
+				}
+				getTotalInsufficientPoint := func(arr []int) int {
 					pt := 0
 					for i, num := range arr {
 						if num < job.TargetLevels[i] {
@@ -213,7 +224,10 @@ func (job *AccessoryJob) Start() {
 					return pt
 				}
 
-				if itemSet.step >= 3 && getInsufficientPoint(nextBuffs) > loa.Const.MaxBuffPointPerGrade[job.Ctx.Grade]*(remainStep-1) {
+				if itemSet.step >= 3 && getMaxInsufficientPoint(nextBuffs) > 3*(remainStep-1) {
+					continue
+				}
+				if itemSet.step >= 3 && getTotalInsufficientPoint(nextBuffs) > loa.Const.MaxBuffPointPerGrade[job.Ctx.Grade]*(remainStep-1) {
 					continue
 				}
 				nextDebuffs := sumArray(itemSet.curDebuffs, item.Debuffs)
@@ -455,32 +469,22 @@ func (job *AccessoryJob) searchAccessory() ([][]AccessoryItem, []bool) {
 }
 
 func (job *AccessoryJob) readOrSearchItem(category string, characterClass string, stepName string, grade string, buff1 string, buff2 string, buffLevel1 int, buffLevel2 int, stat1 string, stat2 string, quality string) ([][]string, string, bool) {
-	// filename
-	fileName := fmt.Sprintf("%s_%s_%d", stepName, buff1, buffLevel1)
+	cacheKey := fmt.Sprintf("%s_%s_%d", stepName, buff1, buffLevel1)
 	if buff2 != "" {
-		fileName += fmt.Sprintf("_%s_%d", buff2, buffLevel2)
+		cacheKey += fmt.Sprintf("_%s_%d", buff2, buffLevel2)
 	}
 	if stat1 != "" {
-		fileName += fmt.Sprintf("_%s", stat1)
+		cacheKey += fmt.Sprintf("_%s", stat1)
 	}
 	if stat2 != "" {
-		fileName += fmt.Sprintf("_%s", stat2)
-	}
-	fileName += ".json"
-
-	// 캐시 데이터가 한시간 이상 지났으면 삭제
-	if stat, err := os.Stat(toolConfig.CachePath + fileName); err == nil {
-		if stat.ModTime().Add(time.Hour * 24).Before(time.Now()) {
-			os.Remove(toolConfig.FileBase + fileName)
-		}
+		cacheKey += fmt.Sprintf("_%s", stat2)
 	}
 
-	if data, err := os.ReadFile(toolConfig.CachePath + fileName); err == nil {
-		tmp := new([][]string)
-		json.Unmarshal(data, tmp)
-		return *tmp, fileName, true
+	ret := loadCacheResult(cacheKey)
+	if len(ret) > 0 {
+		return ret, cacheKey, true
 	} else if runtime.GOOS != "windows" {
-		return [][]string{}, fileName, true
+		return [][]string{}, cacheKey, true
 	} else {
 		job.Web.loginStove()
 		job.Web.openAuction()
@@ -538,12 +542,8 @@ func (job *AccessoryJob) readOrSearchItem(category string, characterClass string
 		}
 		job.LogWriter("log", fmt.Sprintf("검색 결과 [%d]건", len(ret)))
 		if toolConfig.CacheSearchResult {
-			data, _ := json.MarshalIndent(ret, "", "  ")
-			if _, err := os.Stat(toolConfig.CachePath); errors.Is(err, os.ErrNotExist) {
-				os.Mkdir(toolConfig.CachePath, 0755)
-			}
-			os.WriteFile(toolConfig.CachePath+fileName, data, 0644)
+			saveCacheResult(cacheKey, ret)
 		}
-		return ret, fileName, true
+		return ret, cacheKey, true
 	}
 }
