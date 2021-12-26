@@ -40,9 +40,12 @@ type AccessoryItem struct {
 func (job *AccessoryJob) Start() {
 	job.TargetBuffNames = make([]string, 0)
 	job.TargetLevels = make([]int, 0)
-	for name, level := range job.Ctx.TargetBuffs {
+	for name := range job.Ctx.TargetBuffs {
 		job.TargetBuffNames = append(job.TargetBuffNames, name)
-		job.TargetLevels = append(job.TargetLevels, level*5)
+	}
+	sort.Strings(job.TargetBuffNames)
+	for _, name := range job.TargetBuffNames {
+		job.TargetLevels = append(job.TargetLevels, job.Ctx.TargetBuffs[name]*5)
 	}
 
 	allItemList, comparingIndex := job.searchAccessory()
@@ -292,6 +295,9 @@ func (job *AccessoryJob) searchAccessory() ([][]AccessoryItem, []bool) {
 	}
 
 	logStatNames := log.WithField("statNames", statNames)
+	buffLevelSets := [][]int{
+		{5, 3}, {4, 3}, {3, 3}, {3, 4}, {3, 5},
+	}
 
 	for step := range steps {
 		dstItems := []*[]AccessoryItem{&stoneItems, &neckItems, &earItems, &ringItems}[step]
@@ -299,7 +305,13 @@ func (job *AccessoryJob) searchAccessory() ([][]AccessoryItem, []bool) {
 		if grade == "고대" && steps[step] == "어빌리티 스톤" {
 			grade = "유물"
 		}
-		addToItems := func(searchResult [][]string, usePeon bool) {
+		usedKeys := []string{}
+		addToItems := func(searchResult [][]string, searchKey string, usePeon bool) {
+			if searchKey != "" && arrayIndexOf(usedKeys, searchKey) >= 0 {
+				return
+			}
+			usedKeys = append(usedKeys, searchKey)
+			log.WithField("searchKey", searchKey).Infoln("new search key")
 			for _, item := range searchResult {
 				part := strings.Split(item[1], ";")
 				eachBuff := make([]int, len(job.TargetBuffNames))
@@ -354,7 +366,7 @@ func (job *AccessoryJob) searchAccessory() ([][]AccessoryItem, []bool) {
 				})
 			}
 		}
-		addToItems(characterItems[step], false)
+		addToItems(characterItems[step], "", false)
 
 		// 내돌만 사용 옵션
 		if step == 0 && !job.Ctx.SearchAbilityStone {
@@ -374,7 +386,7 @@ func (job *AccessoryJob) searchAccessory() ([][]AccessoryItem, []bool) {
 				switch step {
 				case 0:
 					logStatNames.Traceln("step 0")
-					addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[i], job.TargetBuffNames[j], "", "", ""), true)
+					addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[i], job.TargetBuffNames[j], 0, 0, "", "", ""))
 				case 1:
 					logStatNames.Traceln("step 1")
 					for k, statName1 := range statNames {
@@ -382,9 +394,11 @@ func (job *AccessoryJob) searchAccessory() ([][]AccessoryItem, []bool) {
 							if k >= l {
 								continue
 							}
-							addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[i], job.TargetBuffNames[j], statName1, statName2, qualities[step]), true)
-							addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[i], "", statName1, statName2, qualities[step]), true)
-							addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[j], "", statName1, statName2, qualities[step]), true)
+							for _, levelSet := range buffLevelSets {
+								addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[i], job.TargetBuffNames[j], levelSet[0], levelSet[1], statName1, statName2, qualities[step]))
+								addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[i], "", levelSet[0], levelSet[1], statName1, statName2, qualities[step]))
+								addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[j], "", levelSet[0], levelSet[1], statName1, statName2, qualities[step]))
+							}
 						}
 					}
 				case 2:
@@ -393,9 +407,11 @@ func (job *AccessoryJob) searchAccessory() ([][]AccessoryItem, []bool) {
 				case 3:
 					logStatNames.Traceln("step 3")
 					for _, statName := range statNames {
-						addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[i], job.TargetBuffNames[j], statName, "", qualities[step]), true)
-						addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[i], "", statName, "", qualities[step]), true)
-						addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[j], "", statName, "", qualities[step]), true)
+						for _, levelSet := range buffLevelSets {
+							addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[i], job.TargetBuffNames[j], levelSet[0], levelSet[1], statName, "", qualities[step]))
+							// addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[i], "", levelSet[0], levelSet[1], statName, "", qualities[step]))
+							// addToItems(job.readOrSearchItem(categories[step], characterClass, steps[step], grade, job.TargetBuffNames[j], "", levelSet[0], levelSet[1], statName, "", qualities[step]))
+						}
 					}
 				}
 			}
@@ -438,11 +454,11 @@ func (job *AccessoryJob) searchAccessory() ([][]AccessoryItem, []bool) {
 		}
 }
 
-func (job *AccessoryJob) readOrSearchItem(category string, characterClass string, stepName string, grade string, buff1 string, buff2 string, stat1 string, stat2 string, quality string) [][]string {
+func (job *AccessoryJob) readOrSearchItem(category string, characterClass string, stepName string, grade string, buff1 string, buff2 string, buffLevel1 int, buffLevel2 int, stat1 string, stat2 string, quality string) ([][]string, string, bool) {
 	// filename
-	fileName := fmt.Sprintf("%s_%s", stepName, buff1)
+	fileName := fmt.Sprintf("%s_%s_%d", stepName, buff1, buffLevel1)
 	if buff2 != "" {
-		fileName += fmt.Sprintf("_%s", buff2)
+		fileName += fmt.Sprintf("_%s_%d", buff2, buffLevel2)
 	}
 	if stat1 != "" {
 		fileName += fmt.Sprintf("_%s", stat1)
@@ -462,9 +478,9 @@ func (job *AccessoryJob) readOrSearchItem(category string, characterClass string
 	if data, err := os.ReadFile(toolConfig.CachePath + fileName); err == nil {
 		tmp := new([][]string)
 		json.Unmarshal(data, tmp)
-		return *tmp
+		return *tmp, fileName, true
 	} else if runtime.GOOS != "windows" {
-		return [][]string{}
+		return [][]string{}, fileName, true
 	} else {
 		job.Web.loginStove()
 		job.Web.openAuction()
@@ -479,10 +495,14 @@ func (job *AccessoryJob) readOrSearchItem(category string, characterClass string
 		if buff1 != "" {
 			job.Web.selectEtcDetailOption(".lui-modal__window #selEtc_0", "각인 효과")
 			job.Web.selectEtcDetailOption(".lui-modal__window #selEtcSub_0", buff1)
+			job.Web.selectEtcDetailText("#txtEtcMin_0", fmt.Sprintf("%d", buffLevel1))
+			job.Web.selectEtcDetailText("#txtEtcMax_0", fmt.Sprintf("%d", buffLevel1))
 		}
 		if buff2 != "" {
 			job.Web.selectEtcDetailOption(".lui-modal__window #selEtc_1", "각인 효과")
 			job.Web.selectEtcDetailOption(".lui-modal__window #selEtcSub_1", buff2)
+			job.Web.selectEtcDetailText("#txtEtcMin_1", fmt.Sprintf("%d", buffLevel2))
+			job.Web.selectEtcDetailText("#txtEtcMax_1", fmt.Sprintf("%d", buffLevel2))
 		}
 		if stat1 != "" {
 			job.Web.selectEtcDetailOption(".lui-modal__window #selEtc_2", "전투 특성")
@@ -524,6 +544,6 @@ func (job *AccessoryJob) readOrSearchItem(category string, characterClass string
 			}
 			os.WriteFile(toolConfig.CachePath+fileName, data, 0644)
 		}
-		return ret
+		return ret, fileName, true
 	}
 }

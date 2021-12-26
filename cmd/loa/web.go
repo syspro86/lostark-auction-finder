@@ -348,6 +348,19 @@ func (client *WebClient) selectEtcDetailOption(idName string, optionName string)
 	}
 }
 
+func (client *WebClient) selectEtcDetailText(idName string, keys string) {
+	for {
+		sleepShortly()
+		text, err := client.Driver.FindElement(selenium.ByCSSSelector, idName)
+		if err != nil || text == nil {
+			continue
+		}
+		text.Click()
+		text.SendKeys(keys)
+		return
+	}
+}
+
 func (client *WebClient) searchAndGetResults(itemCount int) ([][]string, bool) {
 	for {
 		sleepShortly()

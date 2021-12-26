@@ -367,7 +367,9 @@
                             })
                         }
                     } else if (data.type == "end") {
-                        $scope.searchRunning = false
+                        $scope.$apply(function() {
+                            $scope.searchRunning = false
+                        })
                     }
                 }
                 websocket.onerror = function (e) {
